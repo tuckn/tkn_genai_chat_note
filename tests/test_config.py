@@ -187,7 +187,7 @@ def test_config_file_requires_schema_version(tmp_path: Path) -> None:
         ('"1.9.0"', "unsupported older configuration schema_version"),
         ('"9.0.0"', "does not convert older files"),
         ('"10.0.0"', "does not convert older files"),
-        ('"11.1.0"', "unsupported newer configuration schema_version"),
+        ('"11.2.0"', "unsupported newer configuration schema_version"),
         ('"12.0.0"', "unsupported newer configuration schema_version"),
     ],
 )
@@ -205,13 +205,13 @@ def test_unsupported_schema_versions_are_rejected(
 
 def test_same_major_minor_newer_patch_is_accepted(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
-    write_yaml(path, {"schema_version": "11.0.7", "runtime_minutes": 10})
+    write_yaml(path, {"schema_version": "11.1.7", "runtime_minutes": 10})
 
     resolution = resolve_app_config(explicit_path=path, cwd=tmp_path)
 
     assert resolution.config.schema_version == CONFIG_SCHEMA_VERSION
     explicit = resolution.layers[-1]
-    assert explicit["schemaVersion"] == "11.0.7"
+    assert explicit["schemaVersion"] == "11.1.7"
     assert explicit["effectiveSchemaVersion"] == CONFIG_SCHEMA_VERSION
 
 

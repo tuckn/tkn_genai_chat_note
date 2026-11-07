@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .chat_sources import conversation_files, open_sources
+from .chat_sources import conversation_files, conversation_key, open_sources
 from .config import AppConfig
 from .digests import DigestContext, DigestStore, digest_cache_root
 from .path_text import PathText
@@ -97,12 +97,19 @@ def _window(config: AppConfig, as_of: date | None, days: int) -> tuple[date, dat
     zone = timezone(timedelta(minutes=config.utc_offset_minutes))
     end = as_of or datetime.now(zone).date()
     start = end - timedelta(days=days - 1)
-    # One extra day: a file's modification time can precede its last message's local date.
-    since = datetime.combine(start - timedelta(days=1), time(), zone)
-    return start, end, since
+    return start, end, files_since(config, start)
 
 
-def _check_roots(config: AppConfig, paths: PathText) -> None:
+def files_since(config: AppConfig, start: date) -> datetime:
+    """The oldest modification time of a conversation file worth reading for local dates from `start`.
+
+    One extra day: a file's modification time can precede its last message's local date.
+    """
+    zone = timezone(timedelta(minutes=config.utc_offset_minutes))
+    return datetime.combine(start - timedelta(days=1), time(), zone)
+
+
+def check_work_roots(config: AppConfig, paths: PathText) -> None:
     """Refuse work folders that overlap a folder this command only reads (an application's folder, an
     archive or the Vault), as written and as the file system resolves them (`..`, junctions and
     symbolic links of the existing part of a path)."""
@@ -178,27 +185,39 @@ def _command_only(items: list[dict[str, Any]]) -> bool:
     return all(item["clue"] == "A" and item["via"] == "command" for item in items)
 
 
-def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None, days: int | None = None,
-                 progress: Any = None) -> dict[str, Any]:
-    if not dry_run:
-        raise PipelineError("actions link writes nothing yet; run it with --dry-run (stage 0)")
-    paths = PathText(config.path_aliases)
-    _check_roots(config, paths)
-    window_days = days or config.processes.actions.lookback_days
-    start, end, since = _window(config, as_of, window_days)
-    vault = config.vault
-    actions, action_issues = load_actions(vault, paths, config.utc_offset_minutes)
-    without_status = [a for a in actions if not a.status]
-    if vault.actions.require_status:
-        actions = [a for a in actions if a.status]
-    vault_root = paths.folder(str(vault.root)) if vault.root else ""
-    actions_dir = _nfc(vault.actions.dir)
-    context = DigestContext(config.utc_offset_minutes, paths, vault_root, actions_dir,
-                            tuple(tuple(group) for group in config.path_aliases))
-    index = ActionIndex(actions, actions_dir, vault.actions.min_name_chars)
+@dataclass
+class ConversationLoad:
+    """The main conversations changed since a time, with their subagents, and how they were read."""
+
+    conversations: dict[tuple[str, str, str], Conversation]
+    sources: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
+    digest_status: Counter[str]
+    read_from: Counter[str]
+    unreadable: list[dict[str, str]]
+    kinds: Counter[str]
+    duplicates: int
+    orphan_subagents: int
+
+    def on_dates(self, dates: set[str]) -> list[Conversation]:
+        """Conversations with a message on one of the local dates (ISO), the latest first."""
+        selected = [c for c in self.conversations.values() if dates.intersection(c.session["localDates"])]
+        selected.sort(key=lambda c: c.session.get("lastLocalTime") or "", reverse=True)
+        return selected
+
+
+def digest_context(config: AppConfig, paths: PathText) -> DigestContext:
+    vault_root = paths.folder(str(config.vault.root)) if config.vault.root else ""
+    return DigestContext(config.utc_offset_minutes, paths, vault_root, _nfc(config.vault.actions.dir),
+                         tuple(tuple(group) for group in config.path_aliases))
+
+
+def load_conversations(config: AppConfig, context: DigestContext, since: datetime) -> ConversationLoad:
+    """Digest the conversation files of every chat source changed since `since` and group them:
+    one entry per main conversation (the longest file when a session has several), subagents
+    attached to their parent."""
     scan = open_sources(config)
     store = DigestStore(context, config.cache_root if config.digests.cache else None)
-    run_id = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z") + "-" + uuid4().hex[:6]
     digests: list[dict[str, Any]] = []
     digest_status: Counter[str] = Counter()
     read_from: Counter[str] = Counter()
@@ -237,18 +256,60 @@ def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None,
             if digest["file"]["lineCount"] <= conversations[session_key].digest["file"]["lineCount"]:
                 continue
         conversations[session_key] = Conversation(session_key, digest)
-    orphan_subagents = 0
-    for digest in subagents:
+    def parent_of(digest: dict[str, Any]) -> tuple[str, str, str]:
         session = digest["session"]
         ref = session["sessionRef"]
-        parent = (ref["app"], ref["sourceId"], (session.get("parentSessionId") or "").casefold())
+        return ref["app"], ref["sourceId"], (session.get("parentSessionId") or "").casefold()
+
+    # A subagent can run after its parent's file was last written: read those parents whatever
+    # their modification time, so the subagent's work is not lost.
+    missing = {parent_of(digest) for digest in subagents if parent_of(digest) not in conversations}
+    for source in scan.sources:
+        wanted = {key[2] for key in missing if key[:2] == (source.app, source.source_id) and key[2]}
+        if not wanted:
+            continue
+        for log in conversation_files(source):
+            name = conversation_key(source.app, log.relative_path)
+            if log.kind == "subagent" or not any(session_id in name for session_id in wanted):
+                continue
+            digest, status = store.load(source, log)
+            if digest is None or digest.get("session") is None:
+                continue
+            digest_status[status.split(":", 1)[0]] += 1
+            read_from[log.location] += 1
+            session = digest["session"]
+            ref = session["sessionRef"]
+            session_key = (ref["app"], ref["sourceId"], ref["sessionId"].casefold())
+            if session["kind"] == "main" and session_key in missing and (
+                    session_key not in conversations
+                    or digest["file"]["lineCount"] > conversations[session_key].digest["file"]["lineCount"]):
+                kinds[session["kind"]] += 1
+                conversations[session_key] = Conversation(session_key, digest)
+    orphan_subagents = 0
+    for digest in subagents:
+        parent = parent_of(digest)
         if parent in conversations:
             conversations[parent].subagents.append(digest)
         else:
             orphan_subagents += 1
-    window = {day.isoformat() for day in (start + timedelta(days=n) for n in range(window_days))}
-    selected = [c for c in conversations.values() if window.intersection(c.session["localDates"])]
-    selected.sort(key=lambda c: c.session.get("lastLocalTime") or "", reverse=True)
+    return ConversationLoad(conversations, [source.describe() for source in scan.sources], scan.skipped,
+                            digest_status, read_from, unreadable, kinds, duplicates, orphan_subagents)
+
+
+@dataclass
+class LinkResult:
+    rows: list[dict[str, Any]]
+    targets: list[ActionNote]
+    clue_counts: Counter[str]
+    decisions: Counter[str]
+
+    def by_conversation(self) -> dict[tuple[str, str, str], dict[str, Any]]:
+        return {(row["app"], row["sourceId"], row["sessionId"].casefold()): row for row in self.rows}
+
+
+def link_conversations(actions: list[ActionNote], index: ActionIndex, selected: list[Conversation],
+                       window_start: datetime, paths: PathText, vault_root: str) -> LinkResult:
+    """Decide which Actions each conversation belongs to (design 4.2, clues A-D only)."""
     touched_keys: set[str] = set()
     for conversation in selected:
         for touch in conversation.touches():
@@ -257,8 +318,6 @@ def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None,
             action = index.by_touch(touch["path"])
             if action is not None:
                 touched_keys.add(action.key())
-    zone = timezone(timedelta(minutes=config.utc_offset_minutes))
-    window_start = datetime.combine(start, time(), zone)
     targets = [a for a in actions if not a.closed and (
         a.in_progress or (a.updated is not None and a.updated >= window_start) or a.key() in touched_keys)]
     target_keys = {a.key() for a in targets}
@@ -336,6 +395,38 @@ def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None,
                        "relativePath": conversation.digest["file"]["relativePath"],
                        "contentSha256": conversation.digest["file"]["contentSha256"]},
         })
+    return LinkResult(rows, targets, clue_counts, decisions)
+
+
+def load_link_actions(config: AppConfig, paths: PathText) -> tuple[list[ActionNote], list[str], int, ActionIndex]:
+    """Action notes that can be linked, the reading issues, the notes without status and the index."""
+    vault = config.vault
+    actions, action_issues = load_actions(vault, paths, config.utc_offset_minutes)
+    without_status = sum(1 for a in actions if not a.status)
+    if vault.actions.require_status:
+        actions = [a for a in actions if a.status]
+    index = ActionIndex(actions, _nfc(vault.actions.dir), vault.actions.min_name_chars)
+    return actions, action_issues, without_status, index
+
+
+def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None, days: int | None = None,
+                 progress: Any = None) -> dict[str, Any]:
+    if not dry_run:
+        raise PipelineError("actions link writes nothing yet; run it with --dry-run (stage 0)")
+    paths = PathText(config.path_aliases)
+    check_work_roots(config, paths)
+    window_days = days or config.processes.actions.lookback_days
+    start, end, since = _window(config, as_of, window_days)
+    actions, action_issues, without_status, index = load_link_actions(config, paths)
+    context = digest_context(config, paths)
+    run_id = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z") + "-" + uuid4().hex[:6]
+    loaded = load_conversations(config, context, since)
+    window = {day.isoformat() for day in (start + timedelta(days=n) for n in range(window_days))}
+    selected = loaded.on_dates(window)
+    zone = timezone(timedelta(minutes=config.utc_offset_minutes))
+    window_start = datetime.combine(start, time(), zone)
+    linked = link_conversations(actions, index, selected, window_start, paths, context.vault_root)
+    rows, targets, decisions = linked.rows, linked.targets, linked.decisions
     linked_actions: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         for link in row["links"]:
@@ -350,24 +441,24 @@ def link_actions(config: AppConfig, *, dry_run: bool, as_of: date | None = None,
         "lookbackDays": window_days,
         "vaultWritten": False,
         "generativeAiUsed": False,
-        "sources": [source.describe() for source in scan.sources],
-        "skippedSources": scan.skipped,
-        "digests": dict(digest_status),
+        "sources": loaded.sources,
+        "skippedSources": loaded.skipped,
+        "digests": dict(loaded.digest_status),
         "digestCache": config.digests.cache,
-        "readFrom": {location: read_from.get(location, 0) for location in ("app", "archive")},
-        "unreadableFiles": unreadable,
-        "sessionKinds": dict(kinds),
-        "duplicateSessions": duplicates,
-        "orphanSubagents": orphan_subagents,
+        "readFrom": {location: loaded.read_from.get(location, 0) for location in ("app", "archive")},
+        "unreadableFiles": loaded.unreadable,
+        "sessionKinds": dict(loaded.kinds),
+        "duplicateSessions": loaded.duplicates,
+        "orphanSubagents": loaded.orphan_subagents,
         "conversationCount": len(rows),
         "decisions": {key: decisions.get(key, 0) for key in DECISIONS},
         "conversationsWithWeakLinks": sum(1 for r in rows if r["weakLinks"]),
         "linkedStrong": sum(1 for r in rows if any(link["strength"] == "strong" for link in r["links"])),
         "linkedMediumOnly": sum(1 for r in rows if r["links"] and all(link["strength"] == "medium"
                                                                          for link in r["links"])),
-        "clueCounts": dict(sorted(clue_counts.items())),
+        "clueCounts": dict(sorted(linked.clue_counts.items())),
         "actionCount": len(actions),
-        "notesWithoutStatus": len(without_status),
+        "notesWithoutStatus": without_status,
         "targetActionCount": len(targets),
         "linkedActionCount": len(linked_actions),
         "actionIssues": action_issues,

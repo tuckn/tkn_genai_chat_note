@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -18,6 +16,7 @@ from .initialization import (
     inspect_reset_target_ownership,
     validate_reset_targets,
 )
+from .locks import exclusive_lock
 from .raw_capture import RawCaptureError, archive_managed
 from .runtime import PipelineError, atomic_write_json, now_iso
 
@@ -113,33 +112,8 @@ def validate_storage(config: AppConfig, config_path: Path | None = None) -> tupl
 
 @contextmanager
 def _root_lock(root: Path) -> Iterator[None]:
-    path = root / ".pipeline.lock"
-    if path.is_symlink():
-        raise PipelineError(f"lock must not be a symbolic link: {path}")
-    with path.open("a+b") as handle:
-        if handle.seek(0, os.SEEK_END) == 0:
-            handle.write(b"0")
-            handle.flush()
-        handle.seek(0)
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise PipelineError(f"another pipeline run holds the storage lock: {root}") from exc
-        try:
-            yield
-        finally:
-            handle.seek(0)
-            if sys.platform == "win32":
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with exclusive_lock(root / ".pipeline.lock", f"another pipeline run holds the storage lock: {root}"):
+        yield
 
 
 @contextmanager

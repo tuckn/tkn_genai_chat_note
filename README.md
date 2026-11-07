@@ -3,7 +3,7 @@
 `tkn-genai-chat-note` は、Codex・Claude Codeの会話ログ（各アプリの保存場所、または [tkn-genai-chat-archiver](https://github.com/tuckn/tkn_genai_chat_archiver) のアーカイブ）を読み、作業ノート（Action）や日次のLogなど、**既存のノートへの差分案**を作るCLIです。
 
 > [!NOTE]
-> 役割を作り替えている途中です（[設計案](docs/design/role-redesign_ja.md)）。今は段階1の前の準備までで、まだノートには何も書きません。
+> 役割を作り替えている途中です（[設計案](docs/design/role-redesign_ja.md)）。今はAIの日記の段階2a（生成AIを使わない一覧と数え上げ）までです。Vaultに書くのは `ai-logs build` が作るAIの日記だけで、既存のノートはまだ変えません。
 
 ## 1. これは何か
 
@@ -19,11 +19,11 @@
 | --- | --- | --- |
 | 0. 準備 | 名前の変更、`scheduled-run` から期間レビューを外す、生成AIの接続を `genai_profiles` に移す、会話の要点、会話とActionの対応づけの試行 | 0.48.0で一部（下の注） |
 | 1. Actionの照合 | 既存のActionの差分案のブロック、下書きのAction | 始める前の準備（読む場所の `mode`、会話の要点のcache、根拠ID）だけ0.50.0で実装 |
-| 2. AIの日記 | AIの側の記録を1日1ファイルで作る | 未実装 |
+| 2. AIの日記 | AIの側の記録を1日1ファイルで作る | 2a（生成AIなし。会話の一覧と数え上げ）を0.51.0で実装。2b（各節を生成AIで書く）は未実装 |
 | 3. dreams | AIの日記の1週間分を振り返り、残すべき学びの候補を出す | 未実装 |
 | 4. 片付け | 期間レビュー・Raw取得・旧profileを外す | 未実装 |
 
-注：今できるのは、名前の変更、`scheduled-run` の変更、`genai_profiles`、会話の要点と、会話とActionの対応づけの試行（`actions link --dry-run`、[3.1節](#31-会話とactionを対応づける試行)）です。ノートにはまだ何も書きません。
+注：今できるのは、名前の変更、`scheduled-run` の変更、`genai_profiles`、会話の要点、会話とActionの対応づけの試行（`actions link --dry-run`、[3.1節](#31-会話とactionを対応づける試行)）、AIの日記（`ai-logs build`、[3.2節](#32-aiの日記を作る)）です。既存のノートにはまだ何も書きません。
 
 ### 1.2. 前提
 
@@ -71,7 +71,7 @@ tkn-genai-chat-note config init
 設定ファイルは `~/.tkn/genai_chat_note/config.yaml` です。優先順位は、既定値 → ユーザー設定 → 作業ディレクトリの `.tkn/config.yaml` → `--config` → CLIオプションです。`config init` は編集済みのファイルを守り、`--force` を付けたときだけバックアップして置き換えます。
 
 ```yaml
-schema_version: "11.0.0"
+schema_version: "11.1.0"
 sources:
   my-pc:
     enabled: true
@@ -96,7 +96,7 @@ model_timeout_seconds: 1800
 
 source IDと、使っているRaw・data・stateの保存先は変えないでください。保存先を省略すると `~/.tkn/genai_chat_note/<kind>/codex/<source_id>` を使います。ほかの項目は[設定例](src/tkn_genai_chat_note/resources/config.example.yaml)を参照してください。
 
-`actions link` には、会話を読む場所（`chat_sources`）とVaultの約束を設定します。Vaultのフォルダ名・Frontmatterの項目名・status・見出し・記録の行の形は、すべて設定で変えられます。
+`actions link` と `ai-logs build` には、会話を読む場所（`chat_sources`）とVaultの約束を設定します。Vaultのフォルダ名・ファイル名・Frontmatterの項目名・status・見出し・記録の行の形は、すべて設定で変えられます。
 
 ```yaml
 chat_sources:
@@ -122,7 +122,15 @@ vault:
     frontmatter:
       id: noteId
       repositories: repositories
+  logs:                         # 本人の日次のLog。AIの日記からリンクするだけで、書き込まない
+    dir: logs/{date:%Y}
+    filename: "{date:%Y-%m-%d}.md"
+  ai_logs:                      # AIの日記（ai-logs build が作る）
+    dir: ai-logs/{date:%Y}
+    filename: "{date:%Y-%m-%d} AI.md"
 ```
+
+`dir`・`filename` には `{date:<strftimeの形>}` だけを書けます。どちらも `vault.root` からの相対の場所で、日付ごとに別のノートになる形（年・月・日を含む）にします。`processes.state_root` と会話の要点のcacheは、`processes.data_root` と重ねられません（`--dry-run` で `data_root` に書かないため）。
 
 ```shell
 tkn-genai-chat-note config list
@@ -196,14 +204,44 @@ tkn-genai-chat-note actions link --dry-run --days 14 --as-of 2026-11-05
 - 本人の発言の判定：Claude Codeは `turnOrigin` が `human` 以外の発言（別のセッションからの依頼など）、sidechain、引数のないスラッシュコマンド、アプリが書いた行を除きます。`turnOrigin` のない古い記録は確度を1段下げて含めます。Codexは、アプリが足すブロック（`<external_…>`・`<user_action>` など）だけの発言を除きます。貼り付け（`<pasted_content>`）は本人の発言に含めます。
 - 根拠ID：`<アプリ>/<source_id>/<セッションID>@<展開した後の内容のSHA-256の先頭12桁>#L<行>`。Codexが `.jsonl` を `.jsonl.zst` に圧縮しても、アプリの保存場所から読んでもアーカイブから読んでも、同じ内容なら同じIDです。`app` だけで読む場合、アプリが後で会話を消したり書き足したりすると、古いIDの内容は確かめられなくなります。後から確かめたいなら `auto` にします。
 
-### 3.2. 定期実行
+### 3.2. AIの日記を作る
+
+```shell
+tkn-genai-chat-note ai-logs build --dry-run
+tkn-genai-chat-note ai-logs build
+tkn-genai-chat-note ai-logs build --date 2026-11-06 --days 7
+```
+
+`chat_sources` の会話から、生成AIの作業をAIの側から記録する日記（AIの日記）を、現地の日付ごとに1つ、`vault.ai_logs` に作ります。既定は前日の1日分です。`--date` は最後の日、`--days` はそこから遡る日数です。主な読み手はAI（次の作業をするAIと、週の振り返り）で、本人のLogとは分けます。
+
+段階2aでは生成AIを使わず、次だけを書きます。「うまくいったこと」「本人から学んだこと」「持ち越し」の節は空にします（段階2bで生成AIが書きます）。
+
+- 今日やったこと：その日の会話ごとに、時刻・アプリ・タイトル・作業フォルダ・本人の発言の数・対応づいたAction（[3.1節](#31-会話とactionを対応づける試行)の手がかりA〜D）・根拠（`<アプリ名> <セッションID>`）。
+- うまくいかなかったこと：数え上げ。読む・探す・一覧の回数、読み込みの失敗（種類ごと）、同じ検索の繰り返し、3回以上読んだファイル、広すぎる走査（深さを限らない一覧・検索、とても大きな結果）、本人の拒否、本人の訂正らしい発言（語句で拾った候補）、Actionの規則（その日に始まり作業をした会話のうち、作業の前にActionを読んだ数と、ActionのNotesにその会話を根拠にした行がある数）、数の多い会話（3件まで）。
+- その日の本人のLog（`vault.logs`）があれば、リンクします。本人のLogには書き込みません。
+
+書き方の決まり：
+
+- 書くのは、終わった日だけです（今日の分は `--dry-run` で見るだけ）。会話のない日は作りません。
+- 新しいノートは作ります。このCLIが前に書いたままのノートは、作り直します（`noteId`・`created` は変えません）。本人が変えたノートは作り直さず、まだ書いていない会話だけを `## 追加（<日時>）` として末尾に足します（Frontmatterは `updated` の行だけを変え、BOMと改行コードは元のまま）。
+- 本人が変えたノートで、最後の変更から30分以内のものは、次の実行に回します（終了コード2）。書く直前にもう一度読み、計画したときから変わっていれば計画し直します。ほかのプログラムが開いていて置き換えられないノートも、待って再試行せず、次の実行に回します。
+- このCLIが書いたノートを本人が消した・移したときは、書き直しません。
+- 読めない取得元・場所・会話のファイル・一覧できないフォルダがあった実行では、既存のノートを作り直さず（次の実行に回す）、既存の数え上げも置き換えません。作り直したノートから、前に書いた会話が消えないようにするためです。新しいノートの作成と「追加」は行います。
+- その日にメッセージがなく、ツールの実行（サブエージェントを含む）だけがあった会話も、その日の会話に数えます。サブエージェントの親の会話のファイルが古くても、親を読みます。
+- 同時に1つしか動きません（`processes.state_root/ai-logs/.lock`）。
+- 数え上げは `processes.data_root/ai-logs/metrics/<西暦>/<日付>.json` に残します（週の振り返りの入力にします）。各ノートを最後に書いた内容は `processes.state_root/ai-logs/notes.json` に記録し、作り直すか足すかの判断に使います。
+- `--dry-run` は、Vaultと `processes.data_root` に書かず、下書き（Vaultと同じ相対の場所）と数え上げを `processes.state_root/ai-logs/<実行ID>/` にだけ書きます。
+- Claude Codeの会話をforkや再開すると、前の会話の記録が新しい会話のファイルに写ります。写された記録（前の会話のセッションIDを持つ行）は、前の会話の分として数え、新しい会話には数えません（`actions link` も同じです）。
+- タイトルなどに含まれるAPIキーやトークンらしい文字列は伏せます。
+
+### 3.3. 定期実行
 
 ```shell
 tkn-genai-chat-note scheduled-run --dry-run
 tkn-genai-chat-note scheduled-run
 ```
 
-0.48.0の `scheduled-run` は、各sourceのRawの取得（archiverのアーカイブなら読み取り）と正規化だけを行い、生成AIを呼びません。期間レビューは作りません。段階1以降、ここに新しい処理を足します。
+0.48.0の `scheduled-run` は、各sourceのRawの取得（archiverのアーカイブなら読み取り）と正規化だけを行い、生成AIを呼びません。期間レビューは作りません。AIの日記（`ai-logs build`）もまだ含めていません。段階1以降、ここに新しい処理を足します。
 
 | Task Schedulerの項目 | 設定例 |
 | --- | --- |
@@ -216,7 +254,7 @@ tkn-genai-chat-note scheduled-run
 
 [登録スクリプト例](scripts/register-scheduled-task.ps1)は `-WhatIf` で確認できます。CLIのインストールはタスクを登録しません。
 
-### 3.3. 期間レビューを手動で作る
+### 3.4. 期間レビューを手動で作る
 
 ```shell
 tkn-genai-chat-note pull
@@ -228,7 +266,7 @@ tkn-genai-chat-note review-notes validate "C:/path/to/data/reviews/weekly/2026/2
 
 `due` は保存済みの全履歴から締まった期間を探し、まだないレビューを作ります。`build` は指定した期間だけを作ります。どちらも保存済みcatalogを読むので、必要なら先に `pull` してください。上限・保護・再開の詳細は[Review Noteの仕様](docs/reference/review-note-format_ja.md)を参照してください。
 
-### 3.4. 保存・正規化だけを実行する
+### 3.5. 保存・正規化だけを実行する
 
 ```shell
 tkn-genai-chat-note clone --dry-run
@@ -238,7 +276,7 @@ tkn-genai-chat-note pull
 
 `clone` は初期化・保存・正規化、`pull` は初期化済みの領域の更新です。どちらも生成AIを呼びません。`raw ingest` はRawの保存だけで、archiverが保管している `raw_root` では止まります（取得はarchiverの `capture` で行います）。
 
-### 3.5. 確認する
+### 3.6. 確認する
 
 ```shell
 tkn-genai-chat-note status
@@ -250,8 +288,8 @@ tkn-genai-chat-note build-report --no-open
 
 ## 4. 仕様
 
-- `--dry-run` は推論・ネットワーク・出力・cache・state・ロックの作成を行いません。
-- 成功は終了コード0、失敗・保護で処理できない項目ありは1、引数の誤りや上限による未完了は2、中断は130です。
+- `--dry-run` は推論・ネットワーク・出力・cache・state・ロックの作成を行いません。ただし `actions link` と `ai-logs build` の `--dry-run` は、レポート・下書き（`processes.state_root`）、会話の要点のcache、`ai-logs build` のロックを書きます。Vaultとアプリの保存場所・アーカイブには書きません。
+- 成功は終了コード0、失敗・保護で処理できない項目ありは1、引数の誤りや上限による未完了（AIの日記を次の実行に回したときを含む）は2、中断は130です。
 - 期間レビューの `max_calls` と `runtime_minutes` は、sourceごとの1回の実行に適用します。
 
 ### 4.1. CLIの結果表示

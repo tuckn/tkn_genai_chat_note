@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tkn-genai-chat-note"
-version = "0.50.0"
+version = "0.51.0"
 description = "Read archived generative AI chat logs and prepare source-cited proposals for existing notes."
 readme = "README.md"
 requires-python = ">=3.11"

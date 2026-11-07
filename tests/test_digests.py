@@ -106,3 +106,50 @@ def test_evidence_ids_and_continuation() -> None:
     assert continuation([first, second, third], "a" * 64, 7) == {"fromLine": 1, "rewritten": True}
     assert continuation([first, second], "z" * 64, 7) == {"fromLine": 1, "rewritten": True}
     assert line_count(b"a\nb\n") == 2 and line_count(b"a\nb") == 2 and line_count(b"") == 0
+
+
+def _claude_digest(records: list[dict[str, Any]], session: str) -> dict[str, Any]:
+    import hashlib
+    import json
+
+    from tkn_genai_chat_note.chat_sources import LogFile
+    from tkn_genai_chat_note.digests import DigestContext, build_digest
+
+    data = "".join(json.dumps(item) + "\n" for item in records).encode()
+    log = LogFile("claude", "claude-code", "pc", f"projects/C--work/{session}.jsonl", "main", "app", None)
+    context = DigestContext(540, PathText(), "", "")
+    return build_digest(log, data, hashlib.sha256(data).hexdigest(), context)["session"]
+
+
+def _turn(kind: str, content: Any, session: str, when: str, uuid: str) -> dict[str, Any]:
+    return {"type": kind, "sessionId": session, "cwd": "C:/work", "timestamp": when, "uuid": uuid,
+            "turnOrigin": "human", "message": {"role": kind, "content": content}}
+
+
+def test_records_copied_from_another_session_are_left_to_that_session() -> None:
+    parent, fork = "11111111-1111-4111-8111-111111111111", "99999999-9999-4999-8999-999999999999"
+    session = _claude_digest([
+        _turn("user", "Old request", parent, "2026-11-01T00:00:00Z", "u1"),
+        _turn("assistant", [{"type": "tool_use", "id": "a", "name": "Read", "input": {"file_path": "C:/x.md"}}],
+              parent, "2026-11-01T00:01:00Z", "u2"),
+        _turn("user", "New request", fork, "2026-11-03T00:00:00Z", "u3"),
+    ], fork)
+    assert [request["text"] for request in session["userRequests"]] == ["New request"]
+    assert session["toolEvents"] == [] and session["localDates"] == ["2026-11-03"]
+    assert session["copiedRecords"] == {"records": 2, "from": [parent]}
+    assert session["created"] == "2026-11-03T00:00:00Z"
+
+
+def test_unregistering_a_scheduled_task_is_not_a_registration() -> None:
+    session_id = "11111111-1111-4111-8111-111111111111"
+    records = [_turn("user", "Clean up", session_id, "2026-11-01T00:00:00Z", "u1")]
+    for index, command in enumerate(("Unregister-ScheduledTask -TaskName Old", "Register-ScheduledTask -TaskName New",
+                                     "schtasks /create /tn Other")):
+        records.append(_turn("assistant", [{"type": "tool_use", "id": f"t{index}", "name": "PowerShell",
+                                            "input": {"command": command}}],
+                             session_id, f"2026-11-01T00:0{index + 1}:00Z", f"a{index}"))
+        records.append(_turn("user", [{"type": "tool_result", "tool_use_id": f"t{index}", "content": "ok"}],
+                             session_id, f"2026-11-01T00:0{index + 1}:30Z", f"r{index}"))
+    facts = _claude_digest(records, session_id)["facts"]
+    assert [fact["evidenceId"].rsplit("#L", 1)[1] for fact in facts if fact["kind"] == "scheduled-task-registered"] \
+        == ["4", "6"]

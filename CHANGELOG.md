@@ -7,6 +7,17 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## 0.51.0 - 2026-11-07
+
+Stage 2a of the role redesign: the AI's diary without generative AI (design 5).
+
+- Add `ai-logs build [--date YYYY-MM-DD] [--days N] [--dry-run]`: one diary note per finished local date below `vault.ai_logs` (default `ai-logs/{date:%Y}/{date:%Y-%m-%d} AI.md`, `type: aiLog`). It lists the day's Codex and Claude Code conversations (time, title, working folder, human requests, Actions linked by clues A-D, evidence) and the counts of design 5.3 (lookups, read failures by kind, repeated searches, files read three times or more, broad scans, rejections, correction candidates, and whether conversations that did work read an Action first and are cited by its Notes). The sections for what went well, what was learned from the person and what is carried over stay empty until stage 2b. It links the person's Log (`vault.logs`) when that note exists and never writes it. No generative AI is called.
+- Diary notes this command wrote and nobody changed are rebuilt with the same `noteId` and `created`; a changed note is not rebuilt, and conversations it does not name yet are appended under `## 追加（<日時>）` (only the `updated` line of the Frontmatter changes; BOM and line breaks are kept). A changed note modified in the last 30 minutes is left for the next run (exit code 2). Notes are compared right before one replacement without retry (a note open in another program is left for the next run), a note this command wrote and the person deleted or moved is not written again, and runs hold a lock. While a chat source, a location, a folder or a conversation file cannot be read, notes are not rebuilt and existing counts are not replaced. A conversation counts for a date when it has a message or a tool execution (subagents included) on it, and a subagent's parent transcript is read whatever its modification time (this also applies to `actions link`). A folder of an application's folder that cannot be listed is reported in the source's `notes` (`folder-unlisted`). Counts go to `processes.data_root/ai-logs/metrics/`, the last written state to `processes.state_root/ai-logs/notes.json`. `--dry-run` writes previews and counts below `processes.state_root` only; today can be previewed but not written.
+- Session digests (schema 2.1.0) leave out the records a Claude Code main transcript copied from another session when it was forked or resumed (they carry that session's `sessionId`) and count them in `copiedRecords`, so the earlier conversation's requests, tool executions and clues are not counted twice. This also changes `actions link`. Digests add `dayRanges` and, for Codex, `originator`.
+- `Unregister-ScheduledTask` no longer counts as registering a scheduled task.
+- Configuration schema 11.1.0 adds `vault.logs` and `vault.ai_logs` (`dir` and `filename` take `{date:<strftime>}` fields only and must name a different note for every date). Files stating 11.0.0 are still read. `ai-logs build` refuses a `processes.state_root` or digest cache that overlaps `processes.data_root`.
+- `actions link` and `ai-logs build` share the reading of conversations and the matching with Actions.
+
 ## 0.50.0 - 2026-11-06
 
 Preparation for stage 1 of the role redesign (design 3.1, 3.2 and 3.4).

@@ -154,7 +154,24 @@ def build_parser() -> argparse.ArgumentParser:
     link.add_argument("--dry-run", action="store_true", help="Required in this version: report only")
     link.add_argument("--days", type=int, help="Days back from --as-of (default: processes.actions.lookback_days)")
     link.add_argument("--as-of", type=date.fromisoformat, help="Last local date of the window (default: today)")
-    usage_report = commands.add_parser("build-report", help="Build an offline token usage and reference-cost report")
+    ai_logs = commands.add_parser("ai-logs", help="Write the AI's diary of a day (stage 2a: no generative AI)")
+    ai_logs_sub = ai_logs.add_subparsers(dest="ai_logs_command", required=True)
+    ai_build = ai_logs_sub.add_parser(
+        "build",
+        help="Write the AI's diary of finished days to vault.ai_logs from that day's conversations",
+        description="Reads the conversations of chat_sources (read only) and the Vault's Action notes, and writes "
+                    "one diary note per local date below vault.ai_logs: the day's conversations with their linked "
+                    "Actions and the counts of lookups, failures, repeats and Action rules. Counts go to "
+                    "processes.data_root/ai-logs/metrics. A note the person changed is never rebuilt; new "
+                    "conversations are appended instead. No generative AI is called. With --dry-run nothing is "
+                    "written outside processes.state_root (previews and a report) and the digest cache.",
+    )
+    ai_build.add_argument("--dry-run", action="store_true",
+                          help="Write previews below processes.state_root; leave the Vault and the metrics alone")
+    ai_build.add_argument("--date", type=date.fromisoformat,
+                          help="Last local date to write (default: yesterday; today only with --dry-run)")
+    ai_build.add_argument("--days", type=int, default=1, help="Number of dates ending at --date (default: 1)")
+    usage_report =commands.add_parser("build-report", help="Build an offline token usage and reference-cost report")
     usage_report.add_argument("--dry-run", action="store_true", help="Aggregate without writing or opening")
     usage_report.add_argument("--no-open", action="store_true", help="Write the report without opening a browser")
     scheduled = commands.add_parser(
@@ -367,6 +384,22 @@ def _run(args: argparse.Namespace, pending: list[dict[str, Any]], targets: dict[
                     decisions["unlinked"])
         LOGGER.info("Report: %s", result["reportPath"])
         return 0
+    if args.command == "ai-logs":
+        from .ai_logs import build_ai_logs
+
+        LOGGER.info("Writing the AI's diary%s (no generative AI)", " preview" if args.dry_run else "")
+        result = build_ai_logs(config, dry_run=args.dry_run, end=args.date, days=args.days)
+        save(result)
+        counts = ", ".join(f"{name} {count}" for name, count in sorted(result["notes"].items()))
+        for day in result["days"]:
+            LOGGER.info("%s: %s (%s conversations)%s", day["date"], day["note"], day["conversations"],
+                        f"; {day['reason']}" if day.get("reason") else "")
+        if not result["complete"]:
+            LOGGER.warning("ai-logs build: %s; deferred notes are written by the next run. Exit code: 2", counts)
+            return 2
+        log_success(LOGGER, "ai-logs build: %s", counts)
+        LOGGER.info("Report: %s", result["reportPath"])
+        return 0
     if args.command == "build-report":
         from .usage_report import build_usage_report
 
@@ -428,7 +461,7 @@ def _run(args: argparse.Namespace, pending: list[dict[str, Any]], targets: dict[
 
 
 def _command_name(args: argparse.Namespace) -> str:
-    keys = ("command", "config_command", "actions_command", "review_command",
+    keys = ("command", "config_command", "actions_command", "ai_logs_command", "review_command",
             "provenance_command", "raw_command")
     return " ".join(str(getattr(args, key)) for key in keys if getattr(args, key, None))
 

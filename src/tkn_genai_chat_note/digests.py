@@ -11,6 +11,7 @@ whenever the content, the settings or the application version changes.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -28,7 +29,7 @@ from .chat_sources import LogFile, OpenSource, SourceReadError
 from .path_text import PathText, last_folder_name
 from .runtime import PipelineError, atomic_write_json
 
-DIGEST_SCHEMA_VERSION = "2.0.0"
+DIGEST_SCHEMA_VERSION = "2.1.0"
 CACHE_FOLDER = "digests"
 REQUEST_CHARS = 4000
 FINAL_ANSWER_CHARS = 1000
@@ -302,6 +303,37 @@ def titles_sha256(app: str, codex_titles: dict[str, list[Title]] | None, session
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _own_records(session: Session, app: str) -> tuple[Session, dict[str, Any]]:
+    """A Claude Code main transcript without the records copied from another session.
+
+    Forking or resuming a conversation copies the earlier session's records, with that session's
+    `sessionId`, into the new transcript. They are the earlier conversation's work, which its own
+    digest already holds; counting them again would repeat its requests, tool executions and
+    clues. Subagent transcripts record their parent's ID and are left whole.
+    """
+    if app != "claude-code" or session.kind != "main":
+        return session, {"records": 0, "from": []}
+    own = session.session_id.casefold()
+
+    def kept(recorded: str) -> bool:
+        return not recorded or recorded.casefold() == own
+
+    messages = [message for message in session.messages if kept(message.session_id)]
+    events = [event for event in session.tool_events if kept(event.session_id)]
+    recorded = [m.session_id for m in session.messages] + [e.session_id for e in session.tool_events]
+    others = Counter(value for value in recorded if not kept(value))
+    if not others:
+        return session, {"records": 0, "from": []}
+    lines = {message.line_number for message in messages}
+    dated = sorted((message.timestamp for message in messages if message.timestamp and not message.is_sidechain),
+                   key=lambda value: value.replace("Z", "+00:00"))
+    trimmed = dataclasses.replace(
+        session, messages=messages, tool_events=events,
+        message_attributes={line: value for line, value in session.message_attributes.items() if line in lines},
+        created=dated[0] if dated else "", updated=dated[-1] if dated else "")
+    return trimmed, {"records": sum(others.values()), "from": [name for name, _count in others.most_common()]}
+
+
 def build_digest(log: LogFile, data: bytes, content_sha256: str, context: DigestContext,
                  codex_titles: dict[str, list[Title]] | None = None) -> dict[str, Any]:
     """Digest one conversation file's decoded content. A file that is not a conversation gives `session: null`.
@@ -327,6 +359,7 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
                         "excludedGeneratedMessages": coverage["details"].get("excluded_generated_messages", 0)}
     if session is None:
         return {**base, "session": None}
+    session, copied = _own_records(session, log.app)
     app, source_id, session_id = log.app, log.source_id, session.session_id
     cwd = context.paths.folder(session.cwd) if session.cwd else ""
 
@@ -381,7 +414,7 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
         if succeeded is not False and command:
             if re.search(r"\bgit\b[^\n|;&]*\bcommit\b", command):
                 facts.append({"kind": "git-commit", "evidenceId": item["evidenceId"]})
-            if "register-scheduledtask" in command or re.search(r"schtasks(\.exe)?\s+/create", command):
+            if re.search(r"(?<![\w-])register-scheduledtask\b|schtasks(\.exe)?\s+/create", command):
                 facts.append({"kind": "scheduled-task-registered", "evidenceId": item["evidenceId"]})
     user_requests = []
     for message, text, confidence, pasted in requests:
@@ -394,12 +427,19 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
         })
     dated = [context.local(m.timestamp) for m in session.messages]
     local_times = sorted(value for value in dated if value is not None)
+    day_ranges: dict[str, list[str]] = {}
+    for value in local_times:
+        span = day_ranges.setdefault(value.date().isoformat(), [value.isoformat(), value.isoformat()])
+        span[1] = value.isoformat()
     return {
         **base,
         "session": {
             "sessionRef": {"app": app, "sourceId": source_id, "sessionId": session_id},
             "kind": session.kind,
             "parentSessionId": session.parent_session_id,
+            "copiedRecords": copied,
+            # Codex: who started the thread (`codex_exec`, `Codex Desktop` ...); empty for Claude Code.
+            "originator": str(session.details.get("originator") or "") if app == "codex" else "",
             "cwd": cwd,
             "repo": last_folder_name(cwd),
             "title": session.title,
@@ -408,6 +448,7 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
             "localDates": sorted({value.date().isoformat() for value in local_times}),
             "firstLocalTime": local_times[0].isoformat() if local_times else None,
             "lastLocalTime": local_times[-1].isoformat() if local_times else None,
+            "dayRanges": day_ranges,  # local date -> [first, last] message time of that date
             "userRequests": user_requests,
             "excludedUserMessages": dict(sorted(excluded.items())),
             "assistantFinals": finals,

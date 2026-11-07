@@ -1,6 +1,6 @@
 # Data contract: chat evidence and calendar reviews
 
-CLI 0.50.0 · config 11.0.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
+CLI 0.51.0 · config 11.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
 
 Terminal results follow the [CLI output contract](cli-output.md): copyable
 `key=value` by default, explicit `--json`, independent `--full-output` detail.
@@ -31,7 +31,7 @@ does not imply that reviews have been generated. When
 tkn-genai-chat-archiver manages raw_root, these commands read its archive instead of
 capturing (see [Archive-managed Raw](#archive-managed-raw)) and `raw ingest` is refused.
 
-## Note processes (stage 0): reading locations, digests and the link report
+## Note processes (stages 0 and 2a): reading locations, digests, the link report and the AI's diary
 
 `actions link --dry-run` reads conversations where `chat_sources` says and the Vault's Action notes
 (`vault`, read only). It writes only below `processes.state_root` and the digest cache
@@ -51,13 +51,19 @@ when it is disabled). It calls no generative AI.
   finished manifests only, the latest version of each relative path, stored and decoded SHA-256
   checked. One `app` and `source_id` pair may appear in one entry only.
 - Session digests: a cache, not data to keep. `<cache_root>/digests/<app>/<source_id>/<key>.json`,
-  one per conversation file (`key` derives from the relative path), schemaVersion 2.0.0. `file` holds
+  one per conversation file (`key` derives from the relative path), schemaVersion 2.1.0. `file` holds
   app, sourceId, relativePath, the decoded content's SHA-256 and the line count, and depends only on
   the content; `location` names the chat source and whether this copy was read from the application's
   folder (`app`) or the archive (`archive`, with the stored SHA-256, capture time and previous
-  relation). `session` holds sessionRef, kind, parentSessionId, normalized cwd and repo, title, local
-  dates, `userRequests`, `excludedUserMessages`, `assistantFinals`, `toolEvents`, `vaultTouches` and
-  `facts`; `coverage` counts parser warnings and ignored record types. A digest is reused only for the
+  relation). `session` holds sessionRef, kind, parentSessionId, `copiedRecords`, `originator`
+  (Codex: who started the thread, for example `codex_exec`), normalized cwd and repo, title, local
+  dates, `dayRanges` (local date to the first and last message time of that date), `userRequests`,
+  `excludedUserMessages`, `assistantFinals`, `toolEvents`, `vaultTouches` and `facts`; `coverage`
+  counts parser warnings and ignored record types. A Claude Code main transcript leaves out the
+  records that carry another session's `sessionId` (copied there when a conversation is forked or
+  resumed; that session's own digest holds them) and counts them in `copiedRecords` (`records` and
+  `from`, the other session IDs). A scheduled task counts as registered for
+  `Register-ScheduledTask` or `schtasks /create`, not for `Unregister-ScheduledTask`. A digest is reused only for the
   same content SHA-256, settings and application version (and, for Codex, the same thread names from
   `session_index.jsonl`, recorded as `titlesSha256`), and may be deleted at any time.
   `digests.cache: false` reads and writes no cache. The same content in two files of one run is
@@ -76,6 +82,41 @@ when it is disabled). It calls no generative AI.
   `weakLinks` and links only together with another clue for the same Action. `followup` rows list
   the finished Actions whose repository matched under `finishedActions`.
   `<state_root>/actions-link/last-run.json` names the latest report.
+- The AI's diary (`ai-logs build`, stage 2a, no generative AI): one Markdown note per local date at
+  `<vault.root>/<vault.ai_logs.dir>/<vault.ai_logs.filename>` (both take `{date:<strftime>}` fields
+  only, stay below `vault.root` and must name a different note for every date), only for a finished
+  day with at least one main conversation that has a message or a tool execution (subagents
+  included) on that date; the parent transcript of such a subagent is read whatever its modification
+  time. Neither `processes.state_root` nor the digest cache may overlap `processes.data_root`.
+  Frontmatter: `type` (`vault.ai_logs.type`, default `aiLog`), `schemaVersion`
+  (`vault.ai_logs.schema_version`, default 1.0.0), `title` (the file name without `.md`),
+  `description`, `actions` (WikiLinks of the linked Actions), `generator: tkn-genai-chat-note`,
+  `reviewStatus: unreviewed`, `created`, `updated`, `noteId`. Body: a link to the person's Log
+  (`vault.logs`) when that note exists, then the fixed sections 今日やったこと, うまくいったこと,
+  うまくいかなかったこと, 本人から学んだこと and 持ち越し; stage 2a fills the first and the third.
+  A note still exactly as this command last wrote it is rebuilt with the same `noteId` and
+  `created`. Any other existing note is not rebuilt: the day's conversations whose session ID it does
+  not contain are appended under `## 追加（<YYYY-MM-DD HH:MM>）`, changing only the Frontmatter's
+  `updated` line and keeping the BOM and line breaks; such a note changed in the last 30 minutes is
+  left for the next run (exit code 2). The note is compared right before one replacement (or a
+  create that never replaces) and planned once more when it changed; a note another program holds
+  open is left for the next run instead of being retried. A note this command wrote that is now
+  missing is not written again. While a chat source, one of its locations, one of its folders
+  (`folder-unlisted` in the source's `notes`) or a conversation file cannot be read
+  (`incompleteInputs`), notes are not rebuilt (left for the next run) and existing
+  counts are not replaced; new notes and additions are still written. Runs hold
+  `<state_root>/ai-logs/.lock`.
+- Diary state and counts: `<state_root>/ai-logs/notes.json` records, per Vault-relative note path,
+  the date, the mode (`built` or `appended`), SHA-256, `noteId`, `created`, `updated` and session IDs
+  last written; a note recorded for another date is never replaced. `<data_root>/ai-logs/metrics/<YYYY>/<YYYY-MM-DD>.json` (schemaVersion 1.0.0) holds the
+  day's `totals` and, per conversation, `sessionRef`, title, cwd, repo, linked `actions`, `day` counts
+  (local first and last time, human requests, tool events, lookups, `readFailures` by kind,
+  rejections, `correctionCandidates` evidence IDs, repeated searches, files read three times or more,
+  broad scans) and `start` counts on the date the conversation started (the first five lookups and
+  their kind, lookups before the first edit or linked Action, and `actionRules`: whether a conversation
+  that did work read an Action first, edited one, and is cited by a linked Action's Notes). A run
+  report goes to `<state_root>/ai-logs/<runId>/report.json`; `--dry-run` writes the planned notes
+  (below `notes/` at their Vault-relative paths) and counts there only.
 
 ## Source identity and configuration
 
@@ -96,9 +137,10 @@ independently; sources are not merged into one calendar note. Review settings be
 `sources.<id>.reviews`. Review outputs are `<data_root>/reviews`; review state is
 `<state_root>/reviews`. Review-specific output roots are not configurable.
 
-Every configuration file states `schema_version: "11.0.0"` (a newer patch is accepted). Another
-major or a newer minor stops with an error; older files are not converted. Schema 11 replaces
-`archives` with `chat_sources` and adds `digests`. Since schema 10, every GenAI connection is
+Every configuration file states `schema_version: "11.1.0"` (an older minor of schema 11 and a newer
+patch are accepted). Another major or a newer minor stops with an error; older files are not
+converted. Schema 11 replaces `archives` with `chat_sources` and adds `digests`; 11.1 adds
+`vault.logs` and `vault.ai_logs`. Since schema 10, every GenAI connection is
 defined in this file under `genai_profiles` (tkn_genai_bridge profiles plus this application's
 `limits` and Ollama `model_digest`) and `generation.genai_profile` selects the review connection;
 no shared Bridge configuration is read. Only `~/.tkn/genai_chat_note`

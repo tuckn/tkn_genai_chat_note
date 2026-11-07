@@ -31,8 +31,8 @@ from .runtime import (
     atomic_write_text,
 )
 
-CONFIG_SCHEMA_VERSION: Literal["11.0.0"] = "11.0.0"
-_CONFIG_SCHEMA_VERSION_PARTS = (11, 0, 0)
+CONFIG_SCHEMA_VERSION: Literal["11.1.0"] = "11.1.0"
+_CONFIG_SCHEMA_VERSION_PARTS = (11, 1, 0)
 _CONFIG_SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 APP_DIRECTORY_NAME = "genai_chat_note"
 CONFIG_EXAMPLE_RESOURCE = "resources/config.example.yaml"
@@ -126,7 +126,7 @@ class AppConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["11.0.0"] = CONFIG_SCHEMA_VERSION
+    schema_version: Literal["11.1.0"] = CONFIG_SCHEMA_VERSION
     sources: dict[SourceId, CodexSourceConfig] = Field(default_factory=lambda: {DEFAULT_SOURCE_ID: CodexSourceConfig()})
     cache_root: Path = Field(default_factory=default_user_cache_root)
     report_path: Path = Field(default_factory=lambda: default_app_root() / "reports")

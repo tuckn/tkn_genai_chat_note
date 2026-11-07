@@ -171,7 +171,7 @@ def test_digests_are_a_cache_rebuilt_when_content_or_settings_change(tmp_path: P
     assert len(files) == 7 and {p.parent.name for p in files} == {"pc-claude", "pc-codex"}
     assert not (tmp_path / "work" / "data" / "digests").exists()
     digest = json.loads(files[0].read_text(encoding="utf-8"))
-    assert digest["schemaVersion"] == "2.0.0" and set(digest["file"]) == {
+    assert digest["schemaVersion"] == "2.1.0" and set(digest["file"]) == {
         "app", "sourceId", "relativePath", "contentSha256", "lineCount"}
 
     second, _rows = run(path, tmp_path)

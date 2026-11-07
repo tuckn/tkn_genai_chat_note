@@ -231,14 +231,18 @@ def _codex_titles(source: OpenSource) -> dict[str, list[Title]]:
     return titles
 
 
-def _walk(root: Path, top: str, prune: Callable[[list[str], list[str]], list[str]]) -> Iterator[tuple[str, str]]:
-    """(relative POSIX path, path to open) of each file below `root/top`; links are not followed."""
+def _walk(root: Path, top: str, prune: Callable[[list[str], list[str]], list[str]],
+          unlisted: Callable[[OSError], None] | None = None) -> Iterator[tuple[str, str]]:
+    """(relative POSIX path, path to open) of each file below `root/top`; links are not followed.
+    A folder that cannot be listed is logged and passed to `unlisted`."""
     base = os_path(root / top)
     if not os.path.isdir(base):
         return
 
     def on_error(exc: OSError) -> None:
         LOGGER.warning("Cannot list folder %s: %s", exc.filename, exc.strerror or type(exc).__name__)
+        if unlisted is not None:
+            unlisted(exc)
 
     for current, directories, filenames in os.walk(base, onerror=on_error, followlinks=False):
         relative = os.path.relpath(current, base)
@@ -268,12 +272,19 @@ def _app_files(source: OpenSource) -> list[LogFile]:
     root = source.app_root
     if root is None:
         return []
+    def unlisted(exc: OSError) -> None:
+        # The conversations below that folder are missing from this run; readers must know.
+        note = {"location": "app", "reason": "folder-unlisted",
+                "detail": f"{exc.filename}: {exc.strerror or type(exc).__name__}"}
+        if note not in source.notes:
+            source.notes.append(note)
+
     found: list[tuple[str, str]] = []
     if source.app == "codex":
         for top in CODEX_FOLDERS:
-            found.extend(_walk(root, top, lambda _parts, directories: directories))
+            found.extend(_walk(root, top, lambda _parts, directories: directories, unlisted))
     else:
-        found.extend(_walk(root, CLAUDE_CODE_FOLDER, _claude_code_prune))
+        found.extend(_walk(root, CLAUDE_CODE_FOLDER, _claude_code_prune, unlisted))
     files = []
     for relative_path, path in found:
         kind = _kind(source.app, relative_path)
