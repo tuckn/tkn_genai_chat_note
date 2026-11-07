@@ -29,7 +29,7 @@ from .chat_sources import LogFile, OpenSource, SourceReadError
 from .path_text import PathText, last_folder_name
 from .runtime import PipelineError, atomic_write_json
 
-DIGEST_SCHEMA_VERSION = "2.1.0"
+DIGEST_SCHEMA_VERSION = "2.2.0"
 CACHE_FOLDER = "digests"
 REQUEST_CHARS = 4000
 FINAL_ANSWER_CHARS = 1000
@@ -424,6 +424,8 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
             "timestamp": message.timestamp, "localDate": local.date().isoformat() if local else None,
             "text": text[:REQUEST_CHARS], "truncated": len(text) > REQUEST_CHARS,
             "pasted": pasted, "confidence": confidence,
+            # A Claude Code slash command with arguments (`/model opus`), kept as `<name> <args>`.
+            "slashCommand": app == "claude-code" and bool(SLASH_COMMAND.match(message.text)),
         })
     dated = [context.local(m.timestamp) for m in session.messages]
     local_times = sorted(value for value in dated if value is not None)
@@ -431,6 +433,11 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
     for value in local_times:
         span = day_ranges.setdefault(value.date().isoformat(), [value.isoformat(), value.isoformat()])
         span[1] = value.isoformat()
+    # Dates on which the AI wrote something; a date with only slash commands or lines the
+    # application wrote has none.
+    assistant_local = [context.local(m.timestamp) for m in session.messages if m.role == "assistant"]
+    assistant_dates = sorted({local.date().isoformat() for local in assistant_local if local is not None})
+    undated_assistant = sum(1 for local in assistant_local if local is None)
     return {
         **base,
         "session": {
@@ -449,6 +456,8 @@ def build_digest(log: LogFile, data: bytes, content_sha256: str, context: Digest
             "firstLocalTime": local_times[0].isoformat() if local_times else None,
             "lastLocalTime": local_times[-1].isoformat() if local_times else None,
             "dayRanges": day_ranges,  # local date -> [first, last] message time of that date
+            "assistantDates": assistant_dates,
+            "undatedAssistantMessages": undated_assistant,
             "userRequests": user_requests,
             "excludedUserMessages": dict(sorted(excluded.items())),
             "assistantFinals": finals,

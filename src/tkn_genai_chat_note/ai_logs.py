@@ -37,7 +37,7 @@ from .action_links import (
     load_conversations,
     load_link_actions,
 )
-from .ai_log_metrics import activity_dates, day_metrics, score, start_metrics, totals
+from .ai_log_metrics import activity_dates, day_metrics, score, start_date, start_metrics, totals, work_dates
 from .config import AppConfig
 from .digests import PASTED_BLOCK, DigestContext, digest_cache_root
 from .locks import exclusive_lock
@@ -153,20 +153,25 @@ class DiaryItem:
 
 
 def diary_items(conversations: list[Conversation], day: date, links: LinkResult,
-                context: DigestContext) -> list[DiaryItem]:
+                context: DigestContext) -> tuple[list[DiaryItem], list[dict[str, Any]]]:
+    """The day's conversations, and those that only had slash commands or lines the application
+    wrote that day (no request, no answer, no tool execution), which the diary leaves out."""
     key = day.isoformat()
     rows = links.by_conversation()
     items = []
+    idle = []
     for conversation in conversations:
-        dates = activity_dates(conversation, context)
+        dates = work_dates(conversation, context)
         if key not in dates:
+            if key in activity_dates(conversation, context):
+                idle.append(conversation.session["sessionRef"])
             continue
         row = rows.get(conversation.key)
-        started = dates[0] == key
+        started = start_date(conversation, context) == key
         items.append(DiaryItem(conversation, row, day_metrics(conversation, key, context),
                                start_metrics(conversation, row, context) if started else None))
     items.sort(key=lambda item: (item.day["firstLocalTime"] or "", item.session_id))
-    return items
+    return items, idle
 
 
 def _trouble_lines(items: list[DiaryItem], summary: dict[str, Any]) -> list[str]:
@@ -410,12 +415,21 @@ def _build(config: AppConfig, dates: list[date], now: datetime, paths: PathText,
     incomplete = incomplete_inputs(loaded)
     results: list[dict[str, Any]] = []
     for day in dates:
-        items = diary_items(selected, day, links, context)
+        items, idle = diary_items(selected, day, links, context)
         if not items:
-            results.append({"date": day.isoformat(), "note": "no-conversations", "conversations": 0})
+            empty: dict[str, Any] = {"date": day.isoformat(), "note": "no-conversations", "conversations": 0,
+                                     "withoutAiWork": len(idle)}
+            path, relative = _target(config, day)
+            if relative in note_state.notes and path.is_file():
+                # An earlier version wrote a note for conversations that no longer count; notes are
+                # never deleted, so the person decides.
+                empty.update(note="stale", notePath=str(path), vaultPath=relative,
+                             reason="no conversation with AI work counts for this date any more; "
+                                    "the note written earlier is left as it is")
+            results.append(empty)
             continue
         results.append(_build_day(config, day, items, now, note_state, run_root, dry_run=dry_run,
-                                  incomplete=incomplete))
+                                  incomplete=incomplete, idle=idle))
     counts: dict[str, int] = {}
     for item in results:
         counts[item["note"]] = counts.get(item["note"], 0) + 1
@@ -450,7 +464,8 @@ def incomplete_inputs(loaded: ConversationLoad) -> str:
 
 
 def _build_day(config: AppConfig, day: date, items: list[DiaryItem], now: datetime, note_state: NoteState,
-               run_root: Path, *, dry_run: bool, incomplete: str = "") -> dict[str, Any]:
+               run_root: Path, *, dry_run: bool, incomplete: str = "",
+               idle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     summary = totals([{"day": item.day, "start": item.start} for item in items])
     path, relative = _target(config, day)
     log_stem = _log_stem(config, day)
@@ -464,11 +479,13 @@ def _build_day(config: AppConfig, day: date, items: list[DiaryItem], now: dateti
 
     planned = plan()
     result: dict[str, Any] = {"date": day.isoformat(), "conversations": len(items), "notePath": str(path),
-                              "vaultPath": relative}
+                              "vaultPath": relative, "withoutAiWork": len(idle or [])}
     metrics_value = {
         "schemaVersion": METRICS_SCHEMA_VERSION, "date": day.isoformat(), "application": __version__,
         "generatedAt": now.isoformat(timespec="seconds"), "note": relative, "incompleteInputs": incomplete,
         "totals": summary, "conversations": [item.record() for item in items],
+        # Conversations with only slash commands or lines the application wrote that day.
+        "withoutAiWork": idle or [],
     }
     if dry_run:
         if planned.content is not None:

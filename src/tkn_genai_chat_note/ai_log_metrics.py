@@ -93,6 +93,49 @@ def activity_dates(conversation: Conversation, context: DigestContext) -> list[s
     return sorted(dates)
 
 
+def _digest_work_dates(session: dict[str, Any], context: DigestContext) -> set[str] | None:
+    """One transcript's work dates, or None when some work has no time (then nothing is left out)."""
+    if "assistantDates" not in session or session.get("undatedAssistantMessages") or any(
+            "slashCommand" not in request for request in session["userRequests"]):
+        return None  # A digest made before 0.51.1, or work without a time.
+    dates: set[str] = set(session["assistantDates"])
+    for request in session["userRequests"]:
+        if request.get("slashCommand"):
+            continue  # A command such as `/model opus`; an AI answer would add the date itself.
+        if not request.get("localDate"):
+            return None
+        dates.add(request["localDate"])
+    for event in session["toolEvents"]:
+        when = _day(context, event.get("timestamp"))
+        if not when:
+            return None
+        dates.add(when)
+    return dates
+
+
+def work_dates(conversation: Conversation, context: DigestContext) -> list[str]:
+    """Local dates on which the person asked for something or the AI wrote or ran something,
+    subagents included. A date with only slash commands or lines the application wrote is left
+    out. When some work has no time, or a digest predates 0.51.1, every activity date is kept."""
+    dates: set[str] = set()
+    for digest in (conversation.digest, *conversation.subagents):
+        found = _digest_work_dates(digest["session"], context)
+        if found is None:
+            return activity_dates(conversation, context)
+        dates.update(found)
+    return sorted(dates)
+
+
+def start_date(conversation: Conversation, context: DigestContext) -> str | None:
+    """The date the conversation started working, from its own transcript: subagents are started by
+    its tool calls, and which subagent files a run reads depends on the window."""
+    own = _digest_work_dates(conversation.session, context)
+    if own:
+        return min(own)
+    dates = work_dates(conversation, context)
+    return dates[0] if dates else None
+
+
 def day_metrics(conversation: Conversation, day: str, context: DigestContext) -> dict[str, Any]:
     """What one conversation did on one local date, from its tool executions and requests of that date."""
     session = conversation.session

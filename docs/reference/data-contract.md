@@ -1,6 +1,6 @@
 # Data contract: chat evidence and calendar reviews
 
-CLI 0.51.0 · config 11.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
+CLI 0.51.1 · config 11.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
 
 Terminal results follow the [CLI output contract](cli-output.md): copyable
 `key=value` by default, explicit `--json`, independent `--full-output` detail.
@@ -51,13 +51,15 @@ when it is disabled). It calls no generative AI.
   finished manifests only, the latest version of each relative path, stored and decoded SHA-256
   checked. One `app` and `source_id` pair may appear in one entry only.
 - Session digests: a cache, not data to keep. `<cache_root>/digests/<app>/<source_id>/<key>.json`,
-  one per conversation file (`key` derives from the relative path), schemaVersion 2.1.0. `file` holds
+  one per conversation file (`key` derives from the relative path), schemaVersion 2.2.0. `file` holds
   app, sourceId, relativePath, the decoded content's SHA-256 and the line count, and depends only on
   the content; `location` names the chat source and whether this copy was read from the application's
   folder (`app`) or the archive (`archive`, with the stored SHA-256, capture time and previous
   relation). `session` holds sessionRef, kind, parentSessionId, `copiedRecords`, `originator`
   (Codex: who started the thread, for example `codex_exec`), normalized cwd and repo, title, local
-  dates, `dayRanges` (local date to the first and last message time of that date), `userRequests`,
+  dates, `dayRanges` (local date to the first and last message time of that date), `assistantDates` (local dates
+  with an AI message) and `undatedAssistantMessages`, `userRequests` (each with `slashCommand`, true
+  for a Claude Code slash command with arguments such as `/model opus`),
   `excludedUserMessages`, `assistantFinals`, `toolEvents`, `vaultTouches` and `facts`; `coverage`
   counts parser warnings and ignored record types. A Claude Code main transcript leaves out the
   records that carry another session's `sessionId` (copied there when a conversation is forked or
@@ -85,9 +87,15 @@ when it is disabled). It calls no generative AI.
 - The AI's diary (`ai-logs build`, stage 2a, no generative AI): one Markdown note per local date at
   `<vault.root>/<vault.ai_logs.dir>/<vault.ai_logs.filename>` (both take `{date:<strftime>}` fields
   only, stay below `vault.root` and must name a different note for every date), only for a finished
-  day with at least one main conversation that has a message or a tool execution (subagents
-  included) on that date; the parent transcript of such a subagent is read whatever its modification
-  time. Neither `processes.state_root` nor the digest cache may overlap `processes.data_root`.
+  day with at least one main conversation in which, on that date, the person asked for something or
+  the AI wrote or ran something (subagents included). A conversation with only slash commands (with
+  or without arguments) or lines the application wrote on that date is left out of that date's note
+  and counts (listed under `withoutAiWork` in the counts); one with a request, an AI message or a
+  tool execution without a time is never left out. A date whose conversations all left keeps the
+  note written earlier and is reported as `stale`. Start counts belong to the first working date of
+  the conversation's own transcript. The parent transcript of a subagent is read whatever its
+  modification time. Neither `processes.state_root` nor the digest cache may overlap
+  `processes.data_root`.
   Frontmatter: `type` (`vault.ai_logs.type`, default `aiLog`), `schemaVersion`
   (`vault.ai_logs.schema_version`, default 1.0.0), `title` (the file name without `.md`),
   `description`, `actions` (WikiLinks of the linked Actions), `generator: tkn-genai-chat-note`,

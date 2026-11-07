@@ -7,6 +7,11 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## 0.51.1 - 2026-11-07
+
+- `ai-logs build` leaves out a conversation on a date when, on that date, it has only slash commands (such as `/model` or `/model opus`) or lines the application wrote, without a request, an AI message or a tool execution. Such conversations are counted under `withoutAiWork` in the run result and listed in the day's counts. A conversation with a request, an AI message or a tool execution without a time is never left out. A conversation's start counts belong to the first date its own transcript worked, whichever subagent files a run reads. Notes this command wrote and nobody changed are rebuilt on the next run; a note whose date no longer has any conversation is reported as `stale` and left as it is.
+- Session digests (schema 2.2.0) add `assistantDates` (the local dates with an AI message) and `undatedAssistantMessages`.
+
 ## 0.51.0 - 2026-11-07
 
 Stage 2a of the role redesign: the AI's diary without generative AI (design 5).

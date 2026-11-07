@@ -248,7 +248,7 @@ def test_subprocess_pipe_and_redirect_use_explicit_format_only(tmp_path: Path, j
     assert not (tmp_path / "user").exists() and not (tmp_path / "cache").exists()
 
 
-@pytest.mark.parametrize("args,expected", [(["--json", "--version"], "0.51.0"),
+@pytest.mark.parametrize("args,expected", [(["--json", "--version"], "0.51.1"),
                                          (["raw", "ingest", "--json", "--help"], "--full-output")])
 def test_help_and_version_keep_guidance_even_with_json(
     capsys: pytest.CaptureFixture[str], args: list[str], expected: str,

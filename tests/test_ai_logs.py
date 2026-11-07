@@ -365,3 +365,101 @@ def test_a_subagent_of_an_older_parent_file_is_counted(tmp_path: Path) -> None:
     metrics = json.loads(Path(planned["days"][0]["metricsPath"]).read_text(encoding="utf-8"))
     by_session = {item["sessionRef"]["sessionId"]: item for item in metrics["conversations"]}
     assert by_session[S3]["day"]["lookups"] == 1 and by_session[S3]["start"] is None
+
+
+def slash_command(session: str, cwd: str, when: str, name: str = "/model") -> list[dict[str, Any]]:
+    """What Claude Code records when the person only runs a slash command: no request, no answer."""
+    return [
+        record("user", "<local-command-caveat>The command below was run directly.</local-command-caveat>",
+               session, cwd, when, turnOrigin=None, uuid=f"{session[:4]}-caveat-{when}"),
+        record("user", f"<command-name>{name}</command-name>\n<command-message>{name[1:]}</command-message>\n"
+               "<command-args></command-args>", session, cwd, when, turnOrigin=None, uuid=f"{session[:4]}-cmd-{when}"),
+        record("user", "<local-command-stdout>Set model</local-command-stdout>", session, cwd, when,
+               turnOrigin=None, uuid=f"{session[:4]}-out-{when}"),
+    ]
+
+
+def test_conversations_with_only_slash_commands_are_left_out(tmp_path: Path) -> None:
+    path, vault_root = configure(tmp_path)
+    cwd = "C:/Windows/Temp/_tkn"
+    write_transcript(tmp_path, S2, slash_command(S2, cwd, "2026-11-04T03:00:00Z"))
+    # S3 only ran /model on 11-03 and worked on 11-04: it belongs to 11-04, where it also starts.
+    write_transcript(tmp_path, S3, [*slash_command(S3, cwd, "2026-11-03T03:00:00Z"),
+                                    record("user", "Now fix the tests", S3, cwd, "2026-11-04T04:00:00Z"),
+                                    record("assistant", [{"type": "text", "text": "Fixed."}], S3, cwd,
+                                           "2026-11-04T04:05:00Z")])
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+
+    planned = build_ai_logs(config, dry_run=True, end=DAY, days=2, now=NOW)
+
+    before, day = planned["days"]
+    assert before == {"date": "2026-11-03", "note": "no-conversations", "conversations": 0, "withoutAiWork": 1}
+    assert day["conversations"] == 2 and day["withoutAiWork"] == 1
+    text = Path(day["previewPath"]).read_text(encoding="utf-8")
+    assert S2 not in text and "（タイトルなし）" not in text and f"Claude Code {S3}" in text
+    metrics = json.loads(Path(day["metricsPath"]).read_text(encoding="utf-8"))
+    assert [ref["sessionId"] for ref in metrics["withoutAiWork"]] == [S2]
+    by_session = {item["sessionRef"]["sessionId"]: item for item in metrics["conversations"]}
+    assert by_session[S3]["start"] is not None and metrics["totals"]["conversations"] == 2
+
+
+def test_commands_with_arguments_are_not_work_and_undated_work_is_kept(tmp_path: Path) -> None:
+    path, _vault_root = configure(tmp_path)
+    cwd = "C:/Windows/Temp/_tkn"
+    with_arguments = slash_command(S2, cwd, "2026-11-04T03:00:00Z")
+    with_arguments[1] = record("user", "<command-name>/model</command-name>\n<command-message>model</command-message>\n"
+                               "<command-args>opus</command-args>", S2, cwd, "2026-11-04T03:00:00Z", turnOrigin=None)
+    write_transcript(tmp_path, S2, with_arguments)
+    # A request without a time next to a dated line the application wrote: nothing is left out.
+    write_transcript(tmp_path, S3, [*slash_command(S3, cwd, "2026-11-04T03:00:00Z"),
+                                    record("user", "Check the disk", S3, cwd, "")])
+    # A request that starts with a path is a request, even when the answer comes the next day.
+    s4 = "44444444-4444-4444-8444-444444444444"
+    write_transcript(tmp_path, s4, [record("user", "/tmp を調べてください", s4, cwd, "2026-11-04T06:00:00Z")])
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+
+    day = build_ai_logs(config, dry_run=True, end=DAY, now=NOW)["days"][0]
+
+    text = Path(day["previewPath"]).read_text(encoding="utf-8")
+    assert S2 not in text and f"Claude Code {S3}" in text and day["withoutAiWork"] == 1
+    assert f"本人の発言 1件（Claude Code {s4}）" in text
+
+
+def test_a_note_whose_conversations_no_longer_count_is_left_and_reported(tmp_path: Path) -> None:
+    path, vault_root = configure(tmp_path)
+    (tmp_path / "claude" / "projects" / "C--work" / f"{S1}.jsonl").unlink()
+    cwd = "C:/Windows/Temp/_tkn"
+    write_transcript(tmp_path, S2, [record("user", "Check the logs", S2, cwd, "2026-11-04T05:00:00Z"),
+                                    record("assistant", [{"type": "text", "text": "Done."}], S2, cwd,
+                                           "2026-11-04T05:01:00Z")])
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+    assert build_ai_logs(config, dry_run=False, end=DAY, now=NOW)["days"][0]["note"] == "created"
+    before = read_note(vault_root)
+    write_transcript(tmp_path, S2, slash_command(S2, cwd, "2026-11-04T05:00:00Z"))
+
+    day = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))["days"][0]
+
+    assert day["note"] == "stale" and day["withoutAiWork"] == 1 and "left as it is" in day["reason"]
+    assert read_note(vault_root) == before
+
+
+def test_the_start_belongs_to_the_first_working_date_of_the_conversation_itself(tmp_path: Path) -> None:
+    path, _vault_root = configure(tmp_path)
+    cwd = "C:/path/to/night"
+    write_transcript(tmp_path, S3, [record("user", "Review it", S3, cwd, "2026-11-04T01:00:00Z"),
+                                    record("assistant", [{"type": "text", "text": "Reviewed."}], S3, cwd,
+                                           "2026-11-04T01:30:00Z")])
+    agent = tmp_path / "claude" / "projects" / "C--work" / S3 / "subagents" / "agent-a1.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps(record("assistant", [{"type": "text", "text": "Early note."}], S3, cwd,
+                                       "2026-11-02T16:00:00Z", isSidechain=True)) + "\n", encoding="utf-8")
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+
+    planned = build_ai_logs(config, dry_run=True, end=DAY, days=2, now=NOW)
+
+    starts = {}
+    for day in planned["days"]:
+        metrics = json.loads(Path(day["metricsPath"]).read_text(encoding="utf-8"))
+        starts[day["date"]] = {item["sessionRef"]["sessionId"]: item["start"] is not None
+                               for item in metrics["conversations"]}
+    assert starts["2026-11-03"][S3] is False and starts["2026-11-04"][S3] is True
