@@ -140,7 +140,7 @@ def configure(root: Path, **settings: Any) -> tuple[Path, Path, list[Path]]:
     archives = [claude_archive(root, vault_root), codex_archive(root)]
     path = root / "config.yaml"
     path.write_text(yaml.safe_dump({
-        "schema_version": "11.0.0",
+        "schema_version": "12.0.0",
         "chat_sources": {
             "claude": {"app": "claude-code", "source_id": "pc-claude", "mode": "archive", "archive": str(archives[0])},
             "codex": {"app": "codex", "source_id": "pc-codex", "mode": "archive", "archive": str(archives[1])},

@@ -236,14 +236,14 @@ def test_work_folders_must_not_overlap_an_application_folder(tmp_path: Path) -> 
 ])
 def test_invalid_chat_sources_are_rejected(tmp_path: Path, entries: dict[str, Any], message: str) -> None:
     path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump({"schema_version": "11.0.0", "chat_sources": entries}), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"schema_version": "12.0.0", "chat_sources": entries}), encoding="utf-8")
     with pytest.raises(PipelineError, match=message):
         load_app_config(explicit_path=path, cwd=tmp_path)
 
 
 def test_chat_source_defaults(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump({"schema_version": "11.0.0", "chat_sources": {
+    path.write_text(yaml.safe_dump({"schema_version": "12.0.0", "chat_sources": {
         "codex": {"app": "codex", "source_id": "pc"},
         "claude": {"app": "claude-code", "source_id": "pc", "root": "apps/claude"},
         "archived": {"app": "codex", "source_id": "other", "mode": "archive", "archive": "archives/codex"},

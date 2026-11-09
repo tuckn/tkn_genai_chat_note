@@ -223,7 +223,7 @@ def test_invalid_prices_rejected(overrides):
 def test_new_settings_resolve_relative_to_config_and_accept_old_schema(tmp_path, monkeypatch):
     monkeypatch.setattr("tkn_genai_chat_note.config.global_config_path", lambda: tmp_path / "absent")
     path = tmp_path / "config.yaml"
-    path.write_text('schema_version: "11.0.0"\nreport_path: reports\nusage_report:\n  utc_offset_minutes: 540\n')
+    path.write_text('schema_version: "12.0.0"\nreport_path: reports\nusage_report:\n  utc_offset_minutes: 540\n')
     before = path.read_bytes()
     cfg = load_app_config(explicit_path=path, cwd=tmp_path)
     assert cfg.report_path == tmp_path / "reports"

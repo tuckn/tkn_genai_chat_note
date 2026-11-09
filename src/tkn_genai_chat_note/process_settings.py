@@ -181,7 +181,7 @@ SAMPLE_DATE = date(2026, 1, 2)
 
 
 def _date_template(value: str, *, folder: bool) -> str:
-    """A folder or file name with `{date:<strftime>}` fields only, e.g. `logs/{date:%Y}`."""
+    """A folder or file name with `{date:<strftime>}` fields only, e.g. `dailies/{date:%Y}`."""
     text = value.replace("\\", "/").strip("/") if folder else value
     for _literal, field_name, _spec, conversion in Formatter().parse(text):
         if field_name is not None and (field_name != "date" or conversion):
@@ -224,26 +224,26 @@ class DatedNoteLocation(BaseModel):
                  for offset in range(731)}
         if len(names) != 731:
             raise ValueError("dir and filename must name a different note for every date "
-                             "(use the year, the month and the day, e.g. {date:%Y-%m-%d})")
+                             "(use the year, the month and the day, e.g. {date:%Y%m%d})")
         return self
 
     def relative_path(self, day: date) -> str:
         return f"{self.dir.format(date=day)}/{self.filename.format(date=day)}"
 
 
-class LogSettings(DatedNoteLocation):
-    """The person's daily Log; only linked from the AI's diary, never written."""
+class DailySettings(DatedNoteLocation):
+    """The person's Daily (one note per date); only linked from the AI's diary, never written."""
 
-    dir: str = "logs/{date:%Y}"
-    filename: str = "{date:%Y-%m-%d}.md"
+    dir: str = "dailies/{date:%Y}"
+    filename: str = "{date:%Y%m%d}.md"
 
 
-class AiLogSettings(DatedNoteLocation):
-    """The AI's diary (design 5.4): one note per local date, written by `ai-logs build`."""
+class AiDailySettings(DatedNoteLocation):
+    """The AI's diary (design 5.4): one note per local date, written by `ai-dailies build`."""
 
-    dir: str = "ai-logs/{date:%Y}"
-    filename: str = "{date:%Y-%m-%d} AI.md"
-    type: str = Field(default="aiLog", min_length=1)
+    dir: str = "ai-dailies/{date:%Y}"
+    filename: str = "{date:%Y%m%d} AI.md"
+    type: str = Field(default="aiDaily", min_length=1)
     schema_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
 
 
@@ -252,8 +252,8 @@ class VaultSettings(BaseModel):
 
     root: Path | None = None
     actions: ActionSettings = Field(default_factory=ActionSettings)
-    logs: LogSettings = Field(default_factory=LogSettings)
-    ai_logs: AiLogSettings = Field(default_factory=AiLogSettings)
+    dailies: DailySettings = Field(default_factory=DailySettings)
+    ai_dailies: AiDailySettings = Field(default_factory=AiDailySettings)
 
     @property
     def actions_root(self) -> Path | None:

@@ -7,6 +7,11 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## 0.53.0 - 2026-11-10
+
+- Rename the AI's diary from aiLog to aiDaily, following the Vault, whose person's Log became Daily (one note per date): the command `ai-logs build` is now `ai-dailies build`, and its state and counts live below `processes.state_root/ai-dailies/` and `processes.data_root/ai-dailies/metrics/`. The diary links the person's Daily as `本人のDaily：[[<note>]]`.
+- Configuration schema 12.0.0 renames `vault.logs` to `vault.dailies` (default `dailies/{date:%Y}/{date:%Y%m%d}.md`) and `vault.ai_logs` to `vault.ai_dailies` (default `ai-dailies/{date:%Y}/{date:%Y%m%d} AI.md`, `type: aiDaily`). Files stating schema 11 are refused and not converted; write `schema_version: "12.0.0"` and the new keys. Earlier state below `ai-logs/` is not read; move it to `ai-dailies/` (and its note paths, when the notes moved too) to keep notes this command wrote rebuildable.
+
 ## 0.52.0 - 2026-11-09
 
 - The default `vault.actions.record_line` also reads the current form of an Action's record lines, written below a `### YYYY-MM-DD` heading with an upper-case kind and half-width separators: `- DECIDED (user): <conclusion>。根拠: <evidence>` (kinds `DECIDED`, `DONE`, `CHECKED` and the earlier `PROPOSED`; the actor may add `, via <process>`). The earlier form that starts with the date (`- YYYY-MM-DD 決定（本人）：…。根拠：…`) is still read. A line without a date counts only with one of those kinds, so other bullets in Notes are not counted. This keeps clue B of `actions link` and the "cited by its Notes" count of `ai-logs build` working for Actions that use the current form.

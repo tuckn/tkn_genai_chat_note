@@ -1,10 +1,10 @@
-"""`ai-logs build`: the AI's diary of a local date, made without generative AI (design 5, stage 2a).
+"""`ai-dailies build`: the AI's diary of a local date, made without generative AI (design 5, stage 2a).
 
 For each date the diary lists the day's Codex and Claude Code conversations (title, working
 folder, linked Actions) and the counts of design 5.3; the other sections stay empty until
-stage 2b. The counts are kept below `processes.data_root/ai-logs/metrics/`.
+stage 2b. The counts are kept below `processes.data_root/ai-dailies/metrics/`.
 
-The note goes to `vault.ai_logs` only for a finished day. A new note is created; a note still
+The note goes to `vault.ai_dailies` only for a finished day. A new note is created; a note still
 exactly as this command last wrote it is rebuilt; a note the person changed is not rebuilt, and
 conversations it does not name yet are appended under `## 追加（<日時>）`. A note changed in the
 last 30 minutes is left for the next run, and the note is read again right before it is
@@ -37,7 +37,7 @@ from .action_links import (
     load_conversations,
     load_link_actions,
 )
-from .ai_log_metrics import activity_dates, day_metrics, score, start_date, start_metrics, totals, work_dates
+from .ai_daily_metrics import activity_dates, day_metrics, score, start_date, start_metrics, totals, work_dates
 from .config import AppConfig
 from .digests import PASTED_BLOCK, DigestContext, digest_cache_root
 from .locks import exclusive_lock
@@ -217,8 +217,8 @@ class NoteIdentity:
 
 
 def render_note(config: AppConfig, day: date, items: list[DiaryItem], summary: dict[str, Any],
-                log_stem: str | None, identity: NoteIdentity) -> str:
-    settings = config.vault.ai_logs
+                daily_stem: str | None, identity: NoteIdentity) -> str:
+    settings = config.vault.ai_dailies
     actions = list(dict.fromkeys(name for item in items for name in item.actions()))
     apps = "・".join(APP_NAMES[app] for app in APP_NAMES if any(item.app == app for item in items))
     title = _stem(settings.filename.format(date=day))
@@ -231,8 +231,8 @@ def render_note(config: AppConfig, day: date, items: list[DiaryItem], summary: d
     lines += [f"generator: {_yaml(PROCESSOR)}", "reviewStatus: unreviewed",
               f"created: {_yaml(identity.created)}", f"updated: {_yaml(identity.updated)}",
               f"noteId: {_yaml(identity.note_id)}", "---", ""]
-    if log_stem:
-        lines += [f"本人のLog：[[{log_stem}]]", ""]
+    if daily_stem:
+        lines += [f"本人のDaily：[[{daily_stem}]]", ""]
     done = [item.line() for item in items[:MAX_ITEMS]]
     if len(items) > MAX_ITEMS:
         done.append(f"- ほか {len(items) - MAX_ITEMS}件（数え上げのJSONにある）")
@@ -348,17 +348,17 @@ class NoteState:
 def _target(config: AppConfig, day: date) -> tuple[Path, str]:
     vault_root = config.vault.root
     assert vault_root is not None
-    relative = config.vault.ai_logs.relative_path(day)
+    relative = config.vault.ai_dailies.relative_path(day)
     path = vault_root.joinpath(*relative.split("/"))
     if not path.resolve().is_relative_to(vault_root.resolve()):
-        raise PipelineError(f"vault.ai_logs leaves vault.root: {path}")
+        raise PipelineError(f"vault.ai_dailies leaves vault.root: {path}")
     return path, relative
 
 
-def _log_stem(config: AppConfig, day: date) -> str | None:
+def _daily_stem(config: AppConfig, day: date) -> str | None:
     vault_root = config.vault.root
     assert vault_root is not None
-    relative = config.vault.logs.relative_path(day)
+    relative = config.vault.dailies.relative_path(day)
     return _stem(relative) if vault_root.joinpath(*relative.split("/")).is_file() else None
 
 
@@ -372,10 +372,10 @@ def _dates(end: date | None, days: int, now: datetime, dry_run: bool) -> list[da
     return [last - timedelta(days=offset) for offset in range(days - 1, -1, -1)]
 
 
-def build_ai_logs(config: AppConfig, *, dry_run: bool, end: date | None = None, days: int = 1,
+def build_ai_dailies(config: AppConfig, *, dry_run: bool, end: date | None = None, days: int = 1,
                   now: datetime | None = None) -> dict[str, Any]:
     if config.vault.root is None:
-        raise PipelineError("vault.root is not configured; ai-logs build writes to vault.ai_logs")
+        raise PipelineError("vault.root is not configured; ai-dailies build writes to vault.ai_dailies")
     if not 1 <= days <= 366:
         raise PipelineError("--days must be between 1 and 366")
     zone = timezone(timedelta(minutes=config.utc_offset_minutes))
@@ -392,11 +392,11 @@ def build_ai_logs(config: AppConfig, *, dry_run: bool, end: date | None = None, 
         for left, right in ((str(other), str(data)), (str(other.resolve()), str(data.resolve()))):
             if paths.is_within(left, right) or paths.is_within(right, left):
                 raise PipelineError(f"{name} must not overlap processes.data_root: {other}, {data}")
-    targets = [config.vault.ai_logs.relative_path(day).casefold() for day in dates]
+    targets = [config.vault.ai_dailies.relative_path(day).casefold() for day in dates]
     if len(set(targets)) != len(targets):
-        raise PipelineError("vault.ai_logs names the same note for two of the dates; use the full date")
-    state_root = config.processes.state_root / "ai-logs"
-    with exclusive_lock(state_root / ".lock", f"another ai-logs build is running: {state_root}", create_parent=True):
+        raise PipelineError("vault.ai_dailies names the same note for two of the dates; use the full date")
+    state_root = config.processes.state_root / "ai-dailies"
+    with exclusive_lock(state_root / ".lock", f"another ai-dailies build is running: {state_root}", create_parent=True):
         return _build(config, dates, current, paths, dry_run=dry_run)
 
 
@@ -409,7 +409,7 @@ def _build(config: AppConfig, dates: list[date], now: datetime, paths: PathText,
     window_start = datetime.combine(dates[0], datetime.min.time(), now.tzinfo)
     links = link_conversations(actions, index, selected, window_start, paths, context.vault_root)
     run_id = now.strftime("%Y%m%dT%H%M%S%z") + "-" + uuid4().hex[:6]
-    state_root = config.processes.state_root / "ai-logs"
+    state_root = config.processes.state_root / "ai-dailies"
     run_root = state_root / run_id
     note_state = NoteState(state_root / "notes.json")
     incomplete = incomplete_inputs(loaded)
@@ -468,10 +468,10 @@ def _build_day(config: AppConfig, day: date, items: list[DiaryItem], now: dateti
                idle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     summary = totals([{"day": item.day, "start": item.start} for item in items])
     path, relative = _target(config, day)
-    log_stem = _log_stem(config, day)
+    daily_stem = _daily_stem(config, day)
 
     def render(identity: NoteIdentity) -> str:
-        return render_note(config, day, items, summary, log_stem, identity)
+        return render_note(config, day, items, summary, daily_stem, identity)
 
     def plan() -> NotePlan:
         return plan_note(path, day.isoformat(), note_state.notes.get(relative), render, items, now,
@@ -504,7 +504,7 @@ def _build_day(config: AppConfig, day: date, items: list[DiaryItem], now: dateti
                 "sessions": [item.session_id for item in items], "writtenAt": now.isoformat(timespec="seconds"),
             }
             note_state.save()
-        metrics = config.processes.data_root / "ai-logs" / "metrics" / f"{day:%Y}" / f"{day.isoformat()}.json"
+        metrics = config.processes.data_root / "ai-dailies" / "metrics" / f"{day:%Y}" / f"{day.isoformat()}.json"
         if incomplete and metrics.is_file():
             result["metricsKept"] = f"not replaced while {incomplete}"
         else:

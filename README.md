@@ -3,7 +3,7 @@
 `tkn-genai-chat-note` は、Codex・Claude Codeの会話ログ（各アプリの保存場所、または [tkn-genai-chat-archiver](https://github.com/tuckn/tkn_genai_chat_archiver) のアーカイブ）を読み、作業ノート（Action）や日次のLogなど、**既存のノートへの差分案**を作るCLIです。
 
 > [!NOTE]
-> 役割を作り替えている途中です（[設計案](docs/design/role-redesign_ja.md)）。今はAIの日記の段階2a（生成AIを使わない一覧と数え上げ）までです。Vaultに書くのは `ai-logs build` が作るAIの日記だけで、既存のノートはまだ変えません。
+> 役割を作り替えている途中です（[設計案](docs/design/role-redesign_ja.md)）。今はAIの日記の段階2a（生成AIを使わない一覧と数え上げ）までです。Vaultに書くのは `ai-dailies build` が作るAIの日記だけで、既存のノートはまだ変えません。
 
 ## 1. これは何か
 
@@ -23,7 +23,7 @@
 | 3. dreams | AIの日記の1週間分を振り返り、残すべき学びの候補を出す | 未実装 |
 | 4. 片付け | 期間レビュー・Raw取得・旧profileを外す | 未実装 |
 
-注：今できるのは、名前の変更、`scheduled-run` の変更、`genai_profiles`、会話の要点、会話とActionの対応づけの試行（`actions link --dry-run`、[3.1節](#31-会話とactionを対応づける試行)）、AIの日記（`ai-logs build`、[3.2節](#32-aiの日記を作る)）です。既存のノートにはまだ何も書きません。
+注：今できるのは、名前の変更、`scheduled-run` の変更、`genai_profiles`、会話の要点、会話とActionの対応づけの試行（`actions link --dry-run`、[3.1節](#31-会話とactionを対応づける試行)）、AIの日記（`ai-dailies build`、[3.2節](#32-aiの日記を作る)）です。既存のノートにはまだ何も書きません。
 
 ### 1.2. 前提
 
@@ -71,7 +71,7 @@ tkn-genai-chat-note config init
 設定ファイルは `~/.tkn/genai_chat_note/config.yaml` です。優先順位は、既定値 → ユーザー設定 → 作業ディレクトリの `.tkn/config.yaml` → `--config` → CLIオプションです。`config init` は編集済みのファイルを守り、`--force` を付けたときだけバックアップして置き換えます。
 
 ```yaml
-schema_version: "11.1.0"
+schema_version: "12.0.0"
 sources:
   my-pc:
     enabled: true
@@ -96,7 +96,7 @@ model_timeout_seconds: 1800
 
 source IDと、使っているRaw・data・stateの保存先は変えないでください。保存先を省略すると `~/.tkn/genai_chat_note/<kind>/codex/<source_id>` を使います。ほかの項目は[設定例](src/tkn_genai_chat_note/resources/config.example.yaml)を参照してください。
 
-`actions link` と `ai-logs build` には、会話を読む場所（`chat_sources`）とVaultの約束を設定します。Vaultのフォルダ名・ファイル名・Frontmatterの項目名・status・見出し・記録の行の形は、すべて設定で変えられます。
+`actions link` と `ai-dailies build` には、会話を読む場所（`chat_sources`）とVaultの約束を設定します。Vaultのフォルダ名・ファイル名・Frontmatterの項目名・status・見出し・記録の行の形は、すべて設定で変えられます。
 
 ```yaml
 chat_sources:
@@ -122,12 +122,12 @@ vault:
     frontmatter:
       id: noteId
       repositories: repositories
-  logs:                         # 本人の日次のLog。AIの日記からリンクするだけで、書き込まない
-    dir: logs/{date:%Y}
-    filename: "{date:%Y-%m-%d}.md"
-  ai_logs:                      # AIの日記（ai-logs build が作る）
-    dir: ai-logs/{date:%Y}
-    filename: "{date:%Y-%m-%d} AI.md"
+  dailies:                      # 本人のDaily（1日1ファイル）。AIの日記からリンクするだけで、書き込まない
+    dir: dailies/{date:%Y}
+    filename: "{date:%Y%m%d}.md"
+  ai_dailies:                   # AIの日記（ai-dailies build が作る）
+    dir: ai-dailies/{date:%Y}
+    filename: "{date:%Y%m%d} AI.md"
 ```
 
 `dir`・`filename` には `{date:<strftimeの形>}` だけを書けます。どちらも `vault.root` からの相対の場所で、日付ごとに別のノートになる形（年・月・日を含む）にします。`processes.state_root` と会話の要点のcacheは、`processes.data_root` と重ねられません（`--dry-run` で `data_root` に書かないため）。
@@ -207,18 +207,18 @@ tkn-genai-chat-note actions link --dry-run --days 14 --as-of 2026-11-05
 ### 3.2. AIの日記を作る
 
 ```shell
-tkn-genai-chat-note ai-logs build --dry-run
-tkn-genai-chat-note ai-logs build
-tkn-genai-chat-note ai-logs build --date 2026-11-06 --days 7
+tkn-genai-chat-note ai-dailies build --dry-run
+tkn-genai-chat-note ai-dailies build
+tkn-genai-chat-note ai-dailies build --date 2026-11-06 --days 7
 ```
 
-`chat_sources` の会話から、生成AIの作業をAIの側から記録する日記（AIの日記）を、現地の日付ごとに1つ、`vault.ai_logs` に作ります。既定は前日の1日分です。`--date` は最後の日、`--days` はそこから遡る日数です。主な読み手はAI（次の作業をするAIと、週の振り返り）で、本人のLogとは分けます。
+`chat_sources` の会話から、生成AIの作業をAIの側から記録する日記（AIの日記）を、現地の日付ごとに1つ、`vault.ai_dailies` に作ります。既定は前日の1日分です。`--date` は最後の日、`--days` はそこから遡る日数です。主な読み手はAI（次の作業をするAIと、週の振り返り）で、本人のDailyとは分けます。
 
 段階2aでは生成AIを使わず、次だけを書きます。「うまくいったこと」「本人から学んだこと」「持ち越し」の節は空にします（段階2bで生成AIが書きます）。
 
 - 今日やったこと：その日の会話ごとに、時刻・アプリ・タイトル・作業フォルダ・本人の発言の数・対応づいたAction（[3.1節](#31-会話とactionを対応づける試行)の手がかりA〜D）・根拠（`<アプリ名> <セッションID>`）。
 - うまくいかなかったこと：数え上げ。読む・探す・一覧の回数、読み込みの失敗（種類ごと）、同じ検索の繰り返し、3回以上読んだファイル、広すぎる走査（深さを限らない一覧・検索、とても大きな結果）、本人の拒否、本人の訂正らしい発言（語句で拾った候補）、Actionの規則（その日に始まり作業をした会話のうち、作業の前にActionを読んだ数と、ActionのNotesにその会話を根拠にした行がある数）、数の多い会話（3件まで）。
-- その日の本人のLog（`vault.logs`）があれば、リンクします。本人のLogには書き込みません。
+- その日の本人のDaily（`vault.dailies`）があれば、リンクします。本人のDailyには書き込みません。
 
 書き方の決まり：
 
@@ -228,9 +228,9 @@ tkn-genai-chat-note ai-logs build --date 2026-11-06 --days 7
 - このCLIが書いたノートを本人が消した・移したときは、書き直しません。
 - 読めない取得元・場所・会話のファイル・一覧できないフォルダがあった実行では、既存のノートを作り直さず（次の実行に回す）、既存の数え上げも置き換えません。作り直したノートから、前に書いた会話が消えないようにするためです。新しいノートの作成と「追加」は行います。
 - その日にメッセージがなく、ツールの実行（サブエージェントを含む）だけがあった会話も、その日の会話に数えます。反対に、その日にスラッシュコマンド（`/model`・`/model opus` など）やアプリが書いた行しかなく、本人の依頼もAIの発言・ツールの実行もない会話は、その日の日記にも数え上げにも入れません（数え上げの `withoutAiWork` に会話のIDだけを残します）。時刻のない依頼・発言・ツールの実行がある会話は除きません。除いた結果、会話がなくなった日の既存の日記は消さず、`stale` と報告します。サブエージェントの親の会話のファイルが古くても、親を読みます。
-- 同時に1つしか動きません（`processes.state_root/ai-logs/.lock`）。
-- 数え上げは `processes.data_root/ai-logs/metrics/<西暦>/<日付>.json` に残します（週の振り返りの入力にします）。各ノートを最後に書いた内容は `processes.state_root/ai-logs/notes.json` に記録し、作り直すか足すかの判断に使います。
-- `--dry-run` は、Vaultと `processes.data_root` に書かず、下書き（Vaultと同じ相対の場所）と数え上げを `processes.state_root/ai-logs/<実行ID>/` にだけ書きます。
+- 同時に1つしか動きません（`processes.state_root/ai-dailies/.lock`）。
+- 数え上げは `processes.data_root/ai-dailies/metrics/<西暦>/<日付>.json` に残します（週の振り返りの入力にします）。各ノートを最後に書いた内容は `processes.state_root/ai-dailies/notes.json` に記録し、作り直すか足すかの判断に使います。
+- `--dry-run` は、Vaultと `processes.data_root` に書かず、下書き（Vaultと同じ相対の場所）と数え上げを `processes.state_root/ai-dailies/<実行ID>/` にだけ書きます。
 - Claude Codeの会話をforkや再開すると、前の会話の記録が新しい会話のファイルに写ります。写された記録（前の会話のセッションIDを持つ行）は、前の会話の分として数え、新しい会話には数えません（`actions link` も同じです）。
 - タイトルなどに含まれるAPIキーやトークンらしい文字列は伏せます。
 
@@ -241,7 +241,7 @@ tkn-genai-chat-note scheduled-run --dry-run
 tkn-genai-chat-note scheduled-run
 ```
 
-0.48.0の `scheduled-run` は、各sourceのRawの取得（archiverのアーカイブなら読み取り）と正規化だけを行い、生成AIを呼びません。期間レビューは作りません。AIの日記（`ai-logs build`）もまだ含めていません。段階1以降、ここに新しい処理を足します。
+0.48.0の `scheduled-run` は、各sourceのRawの取得（archiverのアーカイブなら読み取り）と正規化だけを行い、生成AIを呼びません。期間レビューは作りません。AIの日記（`ai-dailies build`）もまだ含めていません。段階1以降、ここに新しい処理を足します。
 
 | Task Schedulerの項目 | 設定例 |
 | --- | --- |
@@ -288,7 +288,7 @@ tkn-genai-chat-note build-report --no-open
 
 ## 4. 仕様
 
-- `--dry-run` は推論・ネットワーク・出力・cache・state・ロックの作成を行いません。ただし `actions link` と `ai-logs build` の `--dry-run` は、レポート・下書き（`processes.state_root`）、会話の要点のcache、`ai-logs build` のロックを書きます。Vaultとアプリの保存場所・アーカイブには書きません。
+- `--dry-run` は推論・ネットワーク・出力・cache・state・ロックの作成を行いません。ただし `actions link` と `ai-dailies build` の `--dry-run` は、レポート・下書き（`processes.state_root`）、会話の要点のcache、`ai-dailies build` のロックを書きます。Vaultとアプリの保存場所・アーカイブには書きません。
 - 成功は終了コード0、失敗・保護で処理できない項目ありは1、引数の誤りや上限による未完了（AIの日記を次の実行に回したときを含む）は2、中断は130です。
 - 期間レビューの `max_calls` と `runtime_minutes` は、sourceごとの1回の実行に適用します。
 

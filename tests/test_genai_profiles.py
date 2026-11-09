@@ -34,7 +34,7 @@ def profiles():
 def application(tmp_path, *, selected="azure-high", entries=None, **extra):
     path = tmp_path / "app.yaml"
     path.write_text(yaml.safe_dump({
-        "schema_version": "11.0.0",
+        "schema_version": "12.0.0",
         "genai_profiles": profiles() if entries is None else entries,
         "generation": {"genai_profile": selected},
         **extra,
@@ -128,9 +128,9 @@ def test_generation_must_name_a_defined_profile(tmp_path):
 def test_layers_merge_by_name_and_provider_change_replaces_the_connection(tmp_path):
     project = tmp_path / ".tkn/config.yaml"
     project.parent.mkdir()
-    project.write_text(yaml.safe_dump({"schema_version": "11.0.0", "genai_profiles": profiles(),
+    project.write_text(yaml.safe_dump({"schema_version": "12.0.0", "genai_profiles": profiles(),
                                        "generation": {"genai_profile": "azure-high"}}), encoding="utf-8")
-    override = {"schema_version": "11.0.0", "genai_profiles": {"azure-high": {"reasoning_effort": "medium"}}}
+    override = {"schema_version": "12.0.0", "genai_profiles": {"azure-high": {"reasoning_effort": "medium"}}}
     path = tmp_path / "override.yaml"
     path.write_text(yaml.safe_dump(override), encoding="utf-8")
     cfg = load_app_config(explicit_path=path, cwd=tmp_path)

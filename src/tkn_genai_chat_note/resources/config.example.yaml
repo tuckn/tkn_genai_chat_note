@@ -1,4 +1,4 @@
-schema_version: "11.1.0"
+schema_version: "12.0.0"
 # One shared cache base; codex/source_id partitions are automatic.
 cache_root: ~/.cache/genai_chat_note
 
@@ -84,7 +84,7 @@ usage_report:
   #     genai_profile: azure-notes
   #     model: <deployment-name>
 
-# --- Note processes (role redesign: `actions link --dry-run` and `ai-logs build`) ---
+# --- Note processes (role redesign: `actions link --dry-run` and `ai-dailies build`) ---
 # Where conversations are read, one entry per application and source. Both places are read only.
 #   mode: app      the application's folder (root; default ~/.codex or ~/.claude). Default.
 #   mode: archive  only a tkn-genai-chat-archiver archive (archive; its marker must name the
@@ -112,12 +112,12 @@ utc_offset_minutes: 540  # Local dates of conversations; 540 = Japan. No dayligh
 path_aliases: []
 #  - ["D:/path/to/work", "C:/path/to/work"]
 processes:
-  data_root: ~/.tkn/genai_chat_note/processes/data  # Kept data, e.g. the AI's diary counts (ai-logs/metrics).
+  data_root: ~/.tkn/genai_chat_note/processes/data  # Kept data, e.g. the AI's diary counts (ai-dailies/metrics).
   # Reports. Must not lie in an application's folder, an archive or the Vault.
   state_root: ~/.tkn/genai_chat_note/processes/state
   actions:
     lookback_days: 14
-# The Vault's conventions. Only the AI's diary (ai_logs) is written; other notes are read only.
+# The Vault's conventions. Only the AI's diary (ai_dailies) is written; other notes are read only.
 vault:
   root: null  # C:/path/to/vault
   actions:
@@ -142,11 +142,11 @@ vault:
     min_name_chars: 8  # Shortest title or alias that counts as a mention in a request (clue C).
     require_status: true  # Notes without a status (an inbox or index) are not linked.
   # dir and filename below take {date:<strftime format>} fields only, relative to root.
-  logs:  # The person's daily Log: only linked from the AI's diary, never written.
-    dir: logs/{date:%Y}
-    filename: "{date:%Y-%m-%d}.md"
-  ai_logs:  # The AI's diary, written by `ai-logs build` (one note per local date).
-    dir: ai-logs/{date:%Y}
-    filename: "{date:%Y-%m-%d} AI.md"
-    type: aiLog
+  dailies:  # The person's Daily (one note per date): only linked from the AI's diary, never written.
+    dir: dailies/{date:%Y}
+    filename: "{date:%Y%m%d}.md"
+  ai_dailies:  # The AI's diary, written by `ai-dailies build` (one note per local date).
+    dir: ai-dailies/{date:%Y}
+    filename: "{date:%Y%m%d} AI.md"
+    type: aiDaily
     schema_version: "1.0.0"

@@ -1,4 +1,4 @@
-"""`ai-logs build` (stage 2a): the AI's diary from synthetic Claude Code folders and a synthetic Vault."""
+"""`ai-dailies build` (stage 2a): the AI's diary from synthetic Claude Code folders and a synthetic Vault."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import yaml
 from archive_fixtures import tree
 from pydantic import ValidationError
 
-from tkn_genai_chat_note.ai_logs import build_ai_logs
+from tkn_genai_chat_note.ai_dailies import build_ai_dailies
 from tkn_genai_chat_note.cli import main
 from tkn_genai_chat_note.config import load_app_config
-from tkn_genai_chat_note.process_settings import AiLogSettings
+from tkn_genai_chat_note.process_settings import AiDailySettings
 from tkn_genai_chat_note.runtime import PipelineError
 
 JST = timezone(timedelta(hours=9))
@@ -27,7 +27,7 @@ S2 = "22222222-2222-4222-8222-222222222222"
 S3 = "33333333-3333-4333-8333-333333333333"
 FORK = "99999999-9999-4999-8999-999999999999"
 ACTION = "20261101 Build the importer"
-NOTE = "ai-logs/2026/2026-11-04 AI.md"
+NOTE = "ai-dailies/2026/20261104 AI.md"
 
 
 def record(kind: str, content: Any, session: str, cwd: str, when: str, **fields: Any) -> dict[str, Any]:
@@ -88,13 +88,13 @@ def configure(root: Path) -> tuple[Path, Path]:
     (actions / f"{ACTION}.md").write_text(
         "---\n" + yaml.safe_dump({"title": ACTION[9:], "status": "InProgress"}) + "---\n\n## 4. Notes\n\n"
         f"- 2026-11-04 実施（Claude Code）：Fixed it. 根拠：Claude Code {S1}\n", encoding="utf-8")
-    logs = vault_root / "logs" / "2026"
-    logs.mkdir(parents=True)
-    (logs / "2026-11-04.md").write_text("# My day\n", encoding="utf-8")
+    dailies = vault_root / "dailies" / "2026"
+    dailies.mkdir(parents=True)
+    (dailies / "20261104.md").write_text("# My day\n", encoding="utf-8")
     write_transcript(root, S1, main_conversation(vault_root))
     path = root / "config.yaml"
     path.write_text(yaml.safe_dump({
-        "schema_version": "11.1.0",
+        "schema_version": "12.0.0",
         "chat_sources": {"claude": {"app": "claude-code", "source_id": "pc", "root": str(root / "claude")}},
         "cache_root": str(root / "work" / "cache"),
         "utc_offset_minutes": 540,
@@ -116,7 +116,7 @@ def test_build_writes_the_diary_and_its_counts(tmp_path: Path) -> None:
     before = tree(tmp_path / "claude")
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    built = build_ai_logs(config, dry_run=False, end=DAY, now=NOW)
+    built = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
 
     assert tree(tmp_path / "claude") == before
     assert built["complete"] is True and built["generativeAiUsed"] is False and built["vaultWritten"] is True
@@ -124,10 +124,10 @@ def test_build_writes_the_diary_and_its_counts(tmp_path: Path) -> None:
     text = read_note(vault_root)
     head, body = text.split("\n---\n", 1)
     metadata = yaml.safe_load(head.removeprefix("---\n"))
-    assert metadata["type"] == "aiLog" and metadata["title"] == "2026-11-04 AI"
+    assert metadata["type"] == "aiDaily" and metadata["title"] == "20261104 AI"
     assert metadata["actions"] == [f"[[{ACTION}]]"] and metadata["generator"] == "tkn-genai-chat-note"
     assert metadata["reviewStatus"] == "unreviewed" and list(metadata)[-3:] == ["created", "updated", "noteId"]
-    assert "本人のLog：[[2026-11-04]]" in body
+    assert "本人のDaily：[[20261104]]" in body
     assert (f"- 09:00〜09:10 Claude Code「Build the importer [REDACTED]」：作業フォルダ tkn_sample、本人の発言 2件"
             f"（[[{ACTION}]]、Claude Code {S1}）") in body
     assert (f"- 12:00〜12:00 Claude Code「Now write the docs」：作業フォルダ tkn_sample、本人の発言 1件"
@@ -151,14 +151,15 @@ def test_build_writes_the_diary_and_its_counts(tmp_path: Path) -> None:
 def test_unchanged_notes_are_rebuilt_and_changed_ones_get_additions(tmp_path: Path) -> None:
     path, vault_root = configure(tmp_path)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
-    first = build_ai_logs(config, dry_run=False, end=DAY, now=NOW)
+    first = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
     assert first["days"][0]["note"] == "created"
     created = yaml.safe_load(read_note(vault_root).split("\n---\n", 1)[0].removeprefix("---\n"))
-    assert build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))["days"][0]["note"] == "unchanged"
+    again = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
+    assert again["days"][0]["note"] == "unchanged"
 
     cwd = "C:\\path\\to\\other"
     write_transcript(tmp_path, S2, [record("user", "Check the logs", S2, cwd, "2026-11-04T05:00:00Z")])
-    rebuilt = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=2))
+    rebuilt = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=2))
     assert rebuilt["days"][0]["note"] == "rebuilt"
     again = yaml.safe_load(read_note(vault_root).split("\n---\n", 1)[0].removeprefix("---\n"))
     assert (again["noteId"], again["created"]) == (created["noteId"], created["created"])
@@ -169,7 +170,7 @@ def test_unchanged_notes_are_rebuilt_and_changed_ones_get_additions(tmp_path: Pa
     old = (NOW - timedelta(hours=1)).timestamp()
     os.utime(note, (old, old))
     write_transcript(tmp_path, S3, [record("user", "Plan the release", S3, cwd, "2026-11-04T06:00:00Z")])
-    appended = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=3))
+    appended = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=3))
     assert appended["days"][0]["note"] == "appended"
     text = note.read_bytes().decode("utf-8")
     assert "私のメモ\r\n\r\n## 追加（2026-11-05 07:00）\r\n\r\n- 15:00〜15:00 Claude Code「Plan the release」" in text
@@ -181,7 +182,7 @@ def test_unchanged_notes_are_rebuilt_and_changed_ones_get_additions(tmp_path: Pa
                      [record("user", "One more", "44444444-4444-4444-8444-444444444444", cwd, "2026-11-04T07:00:00Z")])
     recent = (NOW + timedelta(hours=4) - timedelta(minutes=1)).timestamp()
     os.utime(note, (recent, recent))
-    waiting = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=4))
+    waiting = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=4))
     assert waiting["days"][0]["note"] == "deferred" and waiting["complete"] is False
     assert note.read_bytes().decode("utf-8") == text
 
@@ -191,19 +192,19 @@ def test_dry_run_writes_only_previews_and_unfinished_days_need_it(tmp_path: Path
     before = tree(vault_root)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    planned = build_ai_logs(config, dry_run=True, end=DAY, days=2, now=NOW)
+    planned = build_ai_dailies(config, dry_run=True, end=DAY, days=2, now=NOW)
 
-    assert tree(vault_root) == before and not (tmp_path / "work" / "data" / "ai-logs").exists()
+    assert tree(vault_root) == before and not (tmp_path / "work" / "data" / "ai-dailies").exists()
     assert [(day["date"], day["note"]) for day in planned["days"]] == [
         ("2026-11-03", "no-conversations"), ("2026-11-04", "would-create")]
     preview = Path(planned["days"][1]["previewPath"])
-    assert preview.name == "2026-11-04 AI.md" and "## 今日やったこと" in preview.read_text(encoding="utf-8")
+    assert preview.name == "20261104 AI.md" and "## 今日やったこと" in preview.read_text(encoding="utf-8")
     assert Path(planned["days"][1]["metricsPath"]).is_relative_to(tmp_path / "work" / "state")
     with pytest.raises(PipelineError, match="not over yet"):
-        build_ai_logs(config, dry_run=False, end=NOW.date(), now=NOW)
-    assert build_ai_logs(config, dry_run=True, end=NOW.date(), now=NOW)["days"][0]["note"] == "no-conversations"
+        build_ai_dailies(config, dry_run=False, end=NOW.date(), now=NOW)
+    assert build_ai_dailies(config, dry_run=True, end=NOW.date(), now=NOW)["days"][0]["note"] == "no-conversations"
     with pytest.raises(PipelineError, match="future"):
-        build_ai_logs(config, dry_run=True, end=NOW.date() + timedelta(days=1), now=NOW)
+        build_ai_dailies(config, dry_run=True, end=NOW.date() + timedelta(days=1), now=NOW)
 
 
 def test_vault_root_is_required_and_work_roots_must_stay_outside(tmp_path: Path) -> None:
@@ -211,10 +212,10 @@ def test_vault_root_is_required_and_work_roots_must_stay_outside(tmp_path: Path)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
     config.processes.data_root = vault_root / "data"
     with pytest.raises(PipelineError, match="must not overlap"):
-        build_ai_logs(config, dry_run=False, end=DAY, now=NOW)
+        build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
     config.vault.root = None
     with pytest.raises(PipelineError, match="vault.root"):
-        build_ai_logs(config, dry_run=True, end=DAY, now=NOW)
+        build_ai_dailies(config, dry_run=True, end=DAY, now=NOW)
 
 
 @pytest.mark.parametrize(("field", "value"), [
@@ -225,23 +226,33 @@ def test_vault_root_is_required_and_work_roots_must_stay_outside(tmp_path: Path)
 ])
 def test_note_locations_take_only_date_fields_inside_the_vault(field: str, value: str) -> None:
     with pytest.raises(ValidationError):
-        AiLogSettings(**{field: value})
+        AiDailySettings(**{field: value})
+
+
+@pytest.mark.parametrize("key", ["logs", "ai_logs"])
+def test_the_earlier_note_keys_are_refused(tmp_path: Path, key: str) -> None:
+    path, _vault_root = configure(tmp_path)
+    settings = yaml.safe_load(path.read_text(encoding="utf-8"))
+    settings["vault"][key] = {"dir": "notes/{date:%Y}", "filename": "{date:%Y%m%d}.md"}
+    path.write_text(yaml.safe_dump(settings), encoding="utf-8")
+    with pytest.raises(PipelineError, match=key):
+        load_app_config(explicit_path=path, cwd=tmp_path)
 
 
 def test_cli_builds_a_past_day(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path, vault_root = configure(tmp_path)
-    assert main(["--config", str(path), "ai-logs", "build", "--date", "2026-11-04", "--json"]) == 0
+    assert main(["--config", str(path), "ai-dailies", "build", "--date", "2026-11-04", "--json"]) == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["command"] == "ai-logs build" and output["notes"] == {"created": 1}
+    assert output["command"] == "ai-dailies build" and output["notes"] == {"created": 1}
     assert (vault_root / NOTE).is_file()
 
 
 def test_a_note_is_not_rebuilt_while_a_source_cannot_be_read(tmp_path: Path) -> None:
     path, vault_root = configure(tmp_path)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
-    assert build_ai_logs(config, dry_run=False, end=DAY, now=NOW)["days"][0]["note"] == "created"
+    assert build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)["days"][0]["note"] == "created"
     before = read_note(vault_root)
-    metrics = tmp_path / "work" / "data" / "ai-logs" / "metrics" / "2026" / "2026-11-04.json"
+    metrics = tmp_path / "work" / "data" / "ai-dailies" / "metrics" / "2026" / "2026-11-04.json"
     counts = metrics.read_bytes()
     write_transcript(tmp_path, S2, [record("user", "Check the logs", S2, "C:/path/to/other", "2026-11-04T05:00:00Z")])
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -249,7 +260,7 @@ def test_a_note_is_not_rebuilt_while_a_source_cannot_be_read(tmp_path: Path) -> 
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    waiting = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
+    waiting = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
 
     day = waiting["days"][0]
     assert day["note"] == "deferred" and "could not be read: missing" in day["reason"]
@@ -261,7 +272,7 @@ def test_busy_notes_are_not_retried_and_deleted_notes_are_not_written_again(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, vault_root = configure(tmp_path)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
-    build_ai_logs(config, dry_run=False, end=DAY, now=NOW)
+    build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
     before = read_note(vault_root)
     write_transcript(tmp_path, S2, [record("user", "Check the logs", S2, "C:/path/to/other", "2026-11-04T05:00:00Z")])
 
@@ -275,14 +286,14 @@ def test_busy_notes_are_not_retried_and_deleted_notes_are_not_written_again(
         replace(source, target)
 
     monkeypatch.setattr(os, "replace", busy)
-    waiting = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
+    waiting = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
     assert waiting["days"][0]["note"] == "deferred" and read_note(vault_root) == before
     assert len(attempts) == 1 and "open in another program" in waiting["days"][0]["reason"]
-    assert not [name for name in os.listdir(vault_root / "ai-logs" / "2026") if name.startswith(".tmp-")]
+    assert not [name for name in os.listdir(vault_root / "ai-dailies" / "2026") if name.startswith(".tmp-")]
     monkeypatch.undo()
 
     (vault_root / NOTE).unlink()
-    gone = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=2))
+    gone = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=2))
     assert gone["days"][0]["note"] == "kept" and "deleted or moved" in gone["days"][0]["reason"]
     assert not (vault_root / NOTE).exists()
 
@@ -298,12 +309,12 @@ def test_a_date_with_only_tool_runs_has_a_diary_and_previews_keep_their_folders(
     ])
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    planned = build_ai_logs(config, dry_run=True, end=date(2026, 11, 3), now=NOW)
+    planned = build_ai_dailies(config, dry_run=True, end=date(2026, 11, 3), now=NOW)
 
     day = planned["days"][0]
     assert day["note"] == "would-create" and day["conversations"] == 1
     preview = Path(day["previewPath"])
-    assert preview.as_posix().endswith("/notes/ai-logs/2026/2026-11-03 AI.md")
+    assert preview.as_posix().endswith("/notes/ai-dailies/2026/20261103 AI.md")
     assert "- 01:00〜01:00 Claude Code「Run the long job」：作業フォルダ night、本人の発言なし" in preview.read_text(
         encoding="utf-8")
 
@@ -314,19 +325,19 @@ def test_state_and_data_roots_must_not_overlap(tmp_path: Path) -> None:
     state = config.processes.state_root
     config.processes.state_root = config.processes.data_root / "state"
     with pytest.raises(PipelineError, match="must not overlap"):
-        build_ai_logs(config, dry_run=True, end=DAY, now=NOW)
+        build_ai_dailies(config, dry_run=True, end=DAY, now=NOW)
     assert not (config.processes.state_root).exists()
     config.processes.state_root = state
     config.cache_root = config.processes.data_root / "cache"
     with pytest.raises(PipelineError, match="digest cache"):
-        build_ai_logs(config, dry_run=True, end=DAY, now=NOW)
+        build_ai_dailies(config, dry_run=True, end=DAY, now=NOW)
     assert not config.processes.data_root.exists()
 
 
 def test_an_unlisted_folder_keeps_the_note_from_being_rebuilt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, vault_root = configure(tmp_path)
     config = load_app_config(explicit_path=path, cwd=tmp_path)
-    build_ai_logs(config, dry_run=False, end=DAY, now=NOW)
+    build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
     before = read_note(vault_root)
     write_transcript(tmp_path, S2, [record("user", "Check the logs", S2, "C:/path/to/other", "2026-11-04T05:00:00Z")])
     walk = os.walk
@@ -337,7 +348,7 @@ def test_an_unlisted_folder_keeps_the_note_from_being_rebuilt(tmp_path: Path, mo
         yield from walk(top, onerror=onerror, followlinks=followlinks)
 
     monkeypatch.setattr(os, "walk", locked)
-    waiting = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
+    waiting = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))
     assert waiting["days"][0]["note"] == "deferred" and "claude" in waiting["incompleteInputs"]
     assert read_note(vault_root) == before
     assert waiting["sources"][0]["notes"][0]["reason"] == "folder-unlisted"
@@ -359,7 +370,7 @@ def test_a_subagent_of_an_older_parent_file_is_counted(tmp_path: Path) -> None:
     )), encoding="utf-8")
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    planned = build_ai_logs(config, dry_run=True, end=DAY, now=NOW)
+    planned = build_ai_dailies(config, dry_run=True, end=DAY, now=NOW)
 
     assert planned["orphanSubagents"] == 0 and planned["days"][0]["conversations"] == 2
     metrics = json.loads(Path(planned["days"][0]["metricsPath"]).read_text(encoding="utf-8"))
@@ -390,7 +401,7 @@ def test_conversations_with_only_slash_commands_are_left_out(tmp_path: Path) -> 
                                            "2026-11-04T04:05:00Z")])
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    planned = build_ai_logs(config, dry_run=True, end=DAY, days=2, now=NOW)
+    planned = build_ai_dailies(config, dry_run=True, end=DAY, days=2, now=NOW)
 
     before, day = planned["days"]
     assert before == {"date": "2026-11-03", "note": "no-conversations", "conversations": 0, "withoutAiWork": 1}
@@ -418,7 +429,7 @@ def test_commands_with_arguments_are_not_work_and_undated_work_is_kept(tmp_path:
     write_transcript(tmp_path, s4, [record("user", "/tmp を調べてください", s4, cwd, "2026-11-04T06:00:00Z")])
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    day = build_ai_logs(config, dry_run=True, end=DAY, now=NOW)["days"][0]
+    day = build_ai_dailies(config, dry_run=True, end=DAY, now=NOW)["days"][0]
 
     text = Path(day["previewPath"]).read_text(encoding="utf-8")
     assert S2 not in text and f"Claude Code {S3}" in text and day["withoutAiWork"] == 1
@@ -433,11 +444,11 @@ def test_a_note_whose_conversations_no_longer_count_is_left_and_reported(tmp_pat
                                     record("assistant", [{"type": "text", "text": "Done."}], S2, cwd,
                                            "2026-11-04T05:01:00Z")])
     config = load_app_config(explicit_path=path, cwd=tmp_path)
-    assert build_ai_logs(config, dry_run=False, end=DAY, now=NOW)["days"][0]["note"] == "created"
+    assert build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)["days"][0]["note"] == "created"
     before = read_note(vault_root)
     write_transcript(tmp_path, S2, slash_command(S2, cwd, "2026-11-04T05:00:00Z"))
 
-    day = build_ai_logs(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))["days"][0]
+    day = build_ai_dailies(config, dry_run=False, end=DAY, now=NOW + timedelta(hours=1))["days"][0]
 
     assert day["note"] == "stale" and day["withoutAiWork"] == 1 and "left as it is" in day["reason"]
     assert read_note(vault_root) == before
@@ -455,7 +466,7 @@ def test_the_start_belongs_to_the_first_working_date_of_the_conversation_itself(
                                        "2026-11-02T16:00:00Z", isSidechain=True)) + "\n", encoding="utf-8")
     config = load_app_config(explicit_path=path, cwd=tmp_path)
 
-    planned = build_ai_logs(config, dry_run=True, end=DAY, days=2, now=NOW)
+    planned = build_ai_dailies(config, dry_run=True, end=DAY, days=2, now=NOW)
 
     starts = {}
     for day in planned["days"]:
