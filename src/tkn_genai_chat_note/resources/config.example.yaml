@@ -135,8 +135,9 @@ vault:
       closed: [Completed, Done, Closed]
     sections:
       notes: '^#{2,6}\s+(?:\d+\.\s*)?Notes\b'  # Heading of the record lines.
-    # record_line: a regular expression with the named group `evidence` (default: the Japanese
-    # `- YYYY-MM-DD <種類>（<主体>）：<結論>。根拠：<根拠>` form).
+    # record_line: a regular expression with the named group `evidence`. The default reads
+    # `- DECIDED (user): <結論>。根拠: <根拠>` below a `### YYYY-MM-DD` heading (kinds DECIDED, DONE,
+    # CHECKED, PROPOSED) and the earlier `- YYYY-MM-DD <種類>（<主体>）：<結論>。根拠：<根拠>` form.
     same_evidence: [同上]  # Evidence text that repeats the previous line's evidence.
     min_name_chars: 8  # Shortest title or alias that counts as a mention in a request (clue C).
     require_status: true  # Notes without a status (an inbox or index) are not linked.

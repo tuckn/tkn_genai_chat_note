@@ -15,9 +15,14 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-# The record-line format of an Action's Notes: `- YYYY-MM-DD <kind>（<actor>）：<conclusion>。根拠：<evidence>`.
+# The record-line formats of an Action's Notes (design 4.3). The current form sits below a
+# `### YYYY-MM-DD` heading and names the kind in upper case: `- DECIDED (user): <conclusion>。根拠: <evidence>`
+# (kinds DECIDED, DONE, CHECKED and the earlier PROPOSED). The earlier form starts with the date and
+# writes the kind and actor in Japanese: `- YYYY-MM-DD 決定（本人）：<conclusion>。根拠：<evidence>`.
+# Both are read; a line without a date counts only with one of those upper-case kinds.
 DEFAULT_RECORD_LINE = (
-    r"^\s*[-*]\s+(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<kind>[^（(：:\s]+)[（(](?P<actor>[^）)]*)[）)][：:]\s*"
+    r"^\s*[-*]\s+(?:(?P<date>\d{4}-\d{2}-\d{2})\s+|(?=(?:DECIDED|DONE|CHECKED|PROPOSED)\s*[（(]))"
+    r"(?P<kind>[^（(：:\s]+)\s*[（(](?P<actor>[^）)]*)[）)]\s*[：:]\s*"
     r"(?P<conclusion>.*?)(?:[。.]?\s*根拠[：:]\s*(?P<evidence>.*))?$"
 )
 CHAT_APPS = ("codex", "claude-code")

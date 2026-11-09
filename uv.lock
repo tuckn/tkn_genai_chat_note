@@ -2304,7 +2304,7 @@ requires-dist = [
 
 [[package]]
 name = "tkn-genai-chat-note"
-version = "0.51.1"
+version = "0.52.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

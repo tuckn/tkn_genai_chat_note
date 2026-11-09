@@ -7,6 +7,11 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## 0.52.0 - 2026-11-09
+
+- The default `vault.actions.record_line` also reads the current form of an Action's record lines, written below a `### YYYY-MM-DD` heading with an upper-case kind and half-width separators: `- DECIDED (user): <conclusion>。根拠: <evidence>` (kinds `DECIDED`, `DONE`, `CHECKED` and the earlier `PROPOSED`; the actor may add `, via <process>`). The earlier form that starts with the date (`- YYYY-MM-DD 決定（本人）：…。根拠：…`) is still read. A line without a date counts only with one of those kinds, so other bullets in Notes are not counted. This keeps clue B of `actions link` and the "cited by its Notes" count of `ai-logs build` working for Actions that use the current form.
+- Design 4.3, 4.6 and 4.8 write proposed record lines in the current form and place them below the heading of the evidence date.
+
 ## 0.51.1 - 2026-11-07
 
 - `ai-logs build` leaves out a conversation on a date when, on that date, it has only slash commands (such as `/model` or `/model opus`) or lines the application wrote, without a request, an AI message or a tool execution. Such conversations are counted under `withoutAiWork` in the run result and listed in the day's counts. A conversation with a request, an AI message or a tool execution without a time is never left out. A conversation's start counts belong to the first date its own transcript worked, whichever subagent files a run reads. Notes this command wrote and nobody changed are rebuilt on the next run; a note whose date no longer has any conversation is reported as `stale` and left as it is.

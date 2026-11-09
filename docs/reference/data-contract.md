@@ -1,6 +1,6 @@
 # Data contract: chat evidence and calendar reviews
 
-CLI 0.51.1 · config 11.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
+CLI 0.52.0 · config 11.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
 
 Terminal results follow the [CLI output contract](cli-output.md): copyable
 `key=value` by default, explicit `--json`, independent `--full-output` detail.
