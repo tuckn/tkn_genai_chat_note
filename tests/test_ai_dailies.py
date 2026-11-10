@@ -474,3 +474,49 @@ def test_the_start_belongs_to_the_first_working_date_of_the_conversation_itself(
         starts[day["date"]] = {item["sessionRef"]["sessionId"]: item["start"] is not None
                                for item in metrics["conversations"]}
     assert starts["2026-11-03"][S3] is False and starts["2026-11-04"][S3] is True
+
+
+def write_action(vault_root: Path, name: str, **frontmatter: Any) -> None:
+    path = vault_root / "notes" / "actions" / "2026" / f"{name}.md"
+    path.write_text("---\n" + yaml.safe_dump({"title": name[9:], **frontmatter}) + "---\n\n## 4. Notes\n",
+                    encoding="utf-8")
+
+
+@pytest.mark.parametrize(("completed", "linked"), [
+    ("2026-11-06T18:00:00+09:00", True),  # Completed later: still in progress on the conversation's date.
+    ("2026-11-03", False),  # Already completed: a follow-up, not a link.
+])
+def test_clue_d_takes_the_actions_as_they_were_on_the_conversation_dates(
+        tmp_path: Path, completed: str, linked: bool) -> None:
+    path, vault_root = configure(tmp_path)
+    old, new = "20261001 Spreadsheet notes, first take", "20261110 Spreadsheet notes, second take"
+    write_action(vault_root, old, status="Completed", created="2026-10-01T09:00:00+09:00", completed=completed,
+                 repositories=["tkn_sheets"])
+    write_action(vault_root, new, status="InProgress", created="2026-11-10T06:35:07+09:00",
+                 repositories=["tkn_sheets"])
+    cwd = "C:/path/to/tkn_sheets"
+    write_transcript(tmp_path, S2, [record("user", "Tidy the sheets", S2, cwd, "2026-11-04T05:00:00Z"),
+                                    record("assistant", [{"type": "text", "text": "Tidied."}], S2, cwd,
+                                           "2026-11-04T05:01:00Z")])
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+
+    build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
+
+    line = next(line for line in read_note(vault_root).splitlines() if S2 in line)
+    assert new not in line  # Created after the conversation.
+    assert (f"[[{old}]]" in line) is linked
+
+
+def test_an_action_written_down_after_its_work_began_counts_from_its_start(tmp_path: Path) -> None:
+    path, vault_root = configure(tmp_path)
+    name = "20261106 Spreadsheet notes, written down later"
+    write_action(vault_root, name, status="Completed", created="2026-11-06T08:00:00+09:00", started="2026-11-02",
+                 completed="2026-11-06", repositories=["tkn_sheets"])
+    cwd = "C:/path/to/tkn_sheets"
+    write_transcript(tmp_path, S2, [record("user", "Tidy the sheets", S2, cwd, "2026-11-04T05:00:00Z")])
+    config = load_app_config(explicit_path=path, cwd=tmp_path)
+
+    build_ai_dailies(config, dry_run=False, end=DAY, now=NOW)
+
+    line = next(line for line in read_note(vault_root).splitlines() if S2 in line)
+    assert f"[[{name}]]" in line

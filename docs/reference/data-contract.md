@@ -1,6 +1,6 @@
 # Data contract: chat evidence and calendar reviews
 
-CLI 0.53.0 · config 12.0.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
+CLI 0.54.0 · config 12.1.0 · storage 5 · catalog/provenance 1.0.0 · Review Note 1.0.0
 
 Terminal results follow the [CLI output contract](cli-output.md): copyable
 `key=value` by default, explicit `--json`, independent `--full-output` detail.
@@ -94,7 +94,11 @@ when it is disabled). It calls no generative AI.
   tool execution without a time is never left out. A date whose conversations all left keeps the
   note written earlier and is reported as `stale`. Start counts belong to the first working date of
   the conversation's own transcript. The parent transcript of a subagent is read whatever its
-  modification time. Neither `processes.state_root` nor the digest cache may overlap
+  modification time. Clue D and the follow-up check take the Actions as they were on the
+  conversation's local dates: an Action whose earlier of `created` and `started`
+  (`vault.actions.frontmatter.created`, `started`) is after the last date is left out, and one closed now whose `completed` date is on or after the first date
+  counts as in progress (`actions link` takes the Actions as they are now). Neither
+  `processes.state_root` nor the digest cache may overlap
   `processes.data_root`.
   Frontmatter: `type` (`vault.ai_dailies.type`, default `aiDaily`), `schemaVersion`
   (`vault.ai_dailies.schema_version`, default 1.0.0), `title` (the file name without `.md`),
@@ -145,10 +149,12 @@ independently; sources are not merged into one calendar note. Review settings be
 `sources.<id>.reviews`. Review outputs are `<data_root>/reviews`; review state is
 `<state_root>/reviews`. Review-specific output roots are not configurable.
 
-Every configuration file states `schema_version: "12.0.0"` (a newer patch is accepted). Another
-major or a newer minor stops with an error; older files are not converted. Schema 11 replaces
+Every configuration file states `schema_version: "12.1.0"` (an older minor of schema 12 and a
+newer patch are accepted). Another major or a newer minor stops with an error; older files are not
+converted. Schema 11 replaces
 `archives` with `chat_sources` and adds `digests`; 11.1 adds `vault.logs` and `vault.ai_logs`; 12
-renames them to `vault.dailies` and `vault.ai_dailies`. Since schema 10, every GenAI connection is
+renames them to `vault.dailies` and `vault.ai_dailies`; 12.1 adds
+`vault.actions.frontmatter.created`, `started` and `completed`. Since schema 10, every GenAI connection is
 defined in this file under `genai_profiles` (tkn_genai_bridge profiles plus this application's
 `limits` and Ollama `model_digest`) and `generation.genai_profile` selects the review connection;
 no shared Bridge configuration is read. Only `~/.tkn/genai_chat_note`

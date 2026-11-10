@@ -19,6 +19,7 @@ import logging
 import re
 import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -307,9 +308,32 @@ class LinkResult:
         return {(row["app"], row["sourceId"], row["sessionId"].casefold()): row for row in self.rows}
 
 
+def _existed(action: ActionNote, last: date) -> bool:
+    """The Action had been created or started by the conversation's last date.
+
+    An Action written down after its work began says so with an earlier `started`; with neither
+    date, it is assumed to have existed.
+    """
+    known = [day for day in (action.created, action.started) if day is not None]
+    return not known or min(known) <= last
+
+
+def _closed_before(action: ActionNote, first: date) -> bool:
+    """Closed now and, as far as `completed` tells, already before the conversation's first date."""
+    return action.closed and (action.completed is None or action.completed < first)
+
+
 def link_conversations(actions: list[ActionNote], index: ActionIndex, selected: list[Conversation],
-                       window_start: datetime, paths: PathText, vault_root: str) -> LinkResult:
-    """Decide which Actions each conversation belongs to (design 4.2, clues A-D only)."""
+                       window_start: datetime, paths: PathText, vault_root: str,
+                       *, dates_of: Callable[[Conversation], list[str]] | None = None) -> LinkResult:
+    """Decide which Actions each conversation belongs to (design 4.2, clues A-D only).
+
+    With `dates_of` (a conversation's local dates, oldest first), clue D and the follow-up check
+    take the Actions as they were on those dates: an Action created and started after the last date
+    is left out, and an Action closed now but completed on or after the first date was still in
+    progress.
+    Without it, as for `actions link`, they take the Actions as they are now.
+    """
     touched_keys: set[str] = set()
     for conversation in selected:
         for touch in conversation.touches():
@@ -341,13 +365,22 @@ def link_conversations(actions: list[ActionNote], index: ActionIndex, selected: 
                 clues.setdefault(action.key(), []).append({"clue": "B", "via": "notes-evidence"})
         for key, items in _clue_c(conversation, index).items():
             clues.setdefault(key, []).extend(items)
-        d_candidates = _clue_d(conversation, targets, paths, vault_root)
+        days = dates_of(conversation) if dates_of is not None else []
+        if days:
+            first, last = date.fromisoformat(days[0]), date.fromisoformat(days[-1])
+            then = [a for a in actions if _existed(a, last) and (
+                a.key() in target_keys or (a.closed and not _closed_before(a, first)))]
+            then_keys = {a.key() for a in then}
+            then_finished = [a for a in finished if _existed(a, last) and _closed_before(a, first)]
+        else:
+            then, then_keys, then_finished = targets, target_keys, finished
+        d_candidates = _clue_d(conversation, then, paths, vault_root)
         links: list[dict[str, Any]] = []
         weak: dict[str, dict[str, Any]] = {}
         for key, items in clues.items():
             action = by_key[key]
             link: dict[str, Any] = {"action": action.relative_path, "title": action.title, "status": action.status,
-                    "target": key in target_keys, "strength": "strong",
+                    "target": key in then_keys, "strength": "strong",
                     "clues": sorted({item["clue"] for item in items}), "details": items}
             if _command_only(items):
                 weak[key] = {**link, "strength": "weak"}
@@ -368,7 +401,7 @@ def link_conversations(actions: list[ActionNote], index: ActionIndex, selected: 
         elif d_candidates:
             decision = "ambiguous"
         else:
-            finished_candidates = _clue_d(conversation, finished, paths, vault_root, title_needs_identifier=True)
+            finished_candidates = _clue_d(conversation, then_finished, paths, vault_root, title_needs_identifier=True)
             decision = "followup" if finished_candidates else "unlinked"
         decisions[decision] += 1
         for link in links:

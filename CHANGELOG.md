@@ -7,6 +7,11 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## 0.54.0 - 2026-11-10
+
+- `ai-dailies build` takes the Actions as they were on a conversation's local dates for clue D (the working folder's repository) and the follow-up check: an Action created and started after the conversation's last date is left out (the earlier of `created` and `started` counts, for an Action written down after its work began), and an Action closed now whose `completed` date is on or after the conversation's first date counts as in progress. A diary written or rebuilt for a past date no longer links a conversation to an Action created later for the same repository. `actions link` still takes the Actions as they are now.
+- Configuration schema 12.1.0 adds `vault.actions.frontmatter.created`, `started` and `completed` (defaults `created`, `started` and `completed`; null when the Vault does not use one). Files stating 12.0.0 are still read.
+
 ## 0.53.0 - 2026-11-10
 
 - Rename the AI's diary from aiLog to aiDaily, following the Vault, whose person's Log became Daily (one note per date): the command `ai-logs build` is now `ai-dailies build`, and its state and counts live below `processes.state_root/ai-dailies/` and `processes.data_root/ai-dailies/metrics/`. The diary links the person's Daily as `本人のDaily：[[<note>]]`.

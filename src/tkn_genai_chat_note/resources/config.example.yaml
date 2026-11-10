@@ -1,4 +1,4 @@
-schema_version: "12.0.0"
+schema_version: "12.1.0"
 # One shared cache base; codex/source_id partitions are automatic.
 cache_root: ~/.cache/genai_chat_note
 
@@ -129,6 +129,9 @@ vault:
       updated: updated
       aliases: aliases
       repositories: repositories  # Repository (folder) names the Action works on; clue D.
+      created: created  # The AI's diary picks Actions as they were on a conversation's dates.
+      started: started
+      completed: completed
     statuses:
       in_progress: [InProgress]
       not_started: [NotStarted]

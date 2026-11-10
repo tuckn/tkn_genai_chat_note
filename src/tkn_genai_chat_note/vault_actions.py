@@ -37,6 +37,9 @@ class ActionNote:
     repositories: list[str]
     in_progress: bool
     closed: bool
+    created: date | None = None  # local dates; None when the Frontmatter does not say
+    started: date | None = None
+    completed: date | None = None
     notes_session_ids: set[str] = field(default_factory=set)
     record_count: int = 0
     issues: list[str] = field(default_factory=list)
@@ -85,6 +88,11 @@ def _datetime(value: Any, utc_offset_minutes: int) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone(timedelta(minutes=utc_offset_minutes)))
     return parsed
+
+
+def _local_date(value: Any, utc_offset_minutes: int) -> date | None:
+    parsed = _datetime(value, utc_offset_minutes)
+    return parsed.astimezone(timezone(timedelta(minutes=utc_offset_minutes))).date() if parsed else None
 
 
 def notes_lines(body: str, heading: re.Pattern[str]) -> list[str]:
@@ -170,6 +178,9 @@ def load_actions(vault: VaultSettings, paths: PathText, utc_offset_minutes: int)
                 repositories=_strings(value(keys.repositories)),
                 in_progress=status.casefold() in in_progress,
                 closed=status.casefold() in closed,
+                created=_local_date(value(keys.created), utc_offset_minutes),
+                started=_local_date(value(keys.started), utc_offset_minutes),
+                completed=_local_date(value(keys.completed), utc_offset_minutes),
                 notes_session_ids=session_ids,
                 record_count=count,
             )

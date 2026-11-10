@@ -407,7 +407,9 @@ def _build(config: AppConfig, dates: list[date], now: datetime, paths: PathText,
     wanted = {day.isoformat() for day in dates}
     selected = [c for c in loaded.conversations.values() if wanted.intersection(activity_dates(c, context))]
     window_start = datetime.combine(dates[0], datetime.min.time(), now.tzinfo)
-    links = link_conversations(actions, index, selected, window_start, paths, context.vault_root)
+    # Past dates: clue D takes the Actions as they were on the conversation's dates, not as they are now.
+    links = link_conversations(actions, index, selected, window_start, paths, context.vault_root,
+                               dates_of=lambda conversation: activity_dates(conversation, context))
     run_id = now.strftime("%Y%m%dT%H%M%S%z") + "-" + uuid4().hex[:6]
     state_root = config.processes.state_root / "ai-dailies"
     run_root = state_root / run_id

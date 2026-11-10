@@ -121,6 +121,11 @@ class ActionFrontmatter(BaseModel):
     updated: str | None = "updated"
     aliases: str | None = "aliases"
     repositories: str | None = "repositories"
+    # When the Action was created, started and closed; the AI's diary picks Actions as of a
+    # conversation's dates.
+    created: str | None = "created"
+    started: str | None = "started"
+    completed: str | None = "completed"
 
 
 class ActionStatuses(BaseModel):
