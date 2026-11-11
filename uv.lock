@@ -2260,8 +2260,8 @@ wheels = [
 
 [[package]]
 name = "tkn-genai-bridge"
-version = "0.10.0"
-source = { url = "https://github.com/tuckn/tkn_genai_bridge/archive/9cf534e47159901c3bb05bb802695fad746cc338.zip" }
+version = "0.11.0"
+source = { url = "https://github.com/tuckn/tkn_genai_bridge/archive/27ac8e48c8038ee86e029f5b845cd41f6da121af.zip" }
 dependencies = [
     { name = "azure-identity" },
     { name = "httpx" },
@@ -2272,7 +2272,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "referencing" },
 ]
-sdist = { hash = "sha256:a32e933e4363030f5c135dc56b91ce23e48d1cb04099e0bb1060acdeda0af58e" }
+sdist = { hash = "sha256:2e9633fb0377d75ca18dc598bb90c6b07fe3a3aa0b58dbe87adb7243ab3b7149" }
 
 [package.metadata]
 requires-dist = [
@@ -2332,7 +2332,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "tiktoken", specifier = ">=0.12,<1" },
-    { name = "tkn-genai-bridge", url = "https://github.com/tuckn/tkn_genai_bridge/archive/9cf534e47159901c3bb05bb802695fad746cc338.zip" },
+    { name = "tkn-genai-bridge", url = "https://github.com/tuckn/tkn_genai_bridge/archive/27ac8e48c8038ee86e029f5b845cd41f6da121af.zip" },
     { name = "tkn-genai-chat-archiver", url = "https://github.com/tuckn/tkn_genai_chat_archiver/archive/94b7d6200ca016b93884d173e8f90ac783cbdce1.zip" },
     { name = "tkn-genai-chat-search", url = "https://github.com/tuckn/tkn_genai_chat_search/archive/8f2c250e7a837075f9b05ab3ef8b5995e0ea47a1.zip" },
     { name = "zstandard", specifier = ">=0.23,<1" },

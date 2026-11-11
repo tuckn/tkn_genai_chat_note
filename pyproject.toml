@@ -14,7 +14,7 @@ dependencies = [
   "pydantic>=2.10,<3",
   "PyYAML>=6,<7",
   "Jinja2>=3.1,<4",
-  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/9cf534e47159901c3bb05bb802695fad746cc338.zip",
+  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/27ac8e48c8038ee86e029f5b845cd41f6da121af.zip",
   "tkn-genai-chat-archiver @ https://github.com/tuckn/tkn_genai_chat_archiver/archive/94b7d6200ca016b93884d173e8f90ac783cbdce1.zip",
   "tkn-genai-chat-search @ https://github.com/tuckn/tkn_genai_chat_search/archive/8f2c250e7a837075f9b05ab3ef8b5995e0ea47a1.zip",
   "httpx>=0.28,<1",

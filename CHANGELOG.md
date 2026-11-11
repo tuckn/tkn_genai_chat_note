@@ -7,6 +7,10 @@
 現在のパッケージ名になった 0.15.0 以降を対象とし、それ以前の前身プロジェクトの履歴は Git を参照してください。
 Git で独立したバージョン更新を確認できない 0.19.x、0.26.x、0.27.x などは個別に掲載していません。
 
+## Unreleased
+
+- Update tkn-genai-bridge from 0.10.0 (9cf534e) to 27ac8e4 (0.11.0). Claude Code calls no longer add an empty folder under `~/.claude/projects` for every call, and when a forced termination leaves a temporary folder behind, the first generation of the next run removes it. Folders left by the earlier Bridge version are not removed.
+
 ## 0.54.0 - 2026-11-10
 
 - `ai-dailies build` takes the Actions as they were on a conversation's local dates for clue D (the working folder's repository) and the follow-up check: an Action created and started after the conversation's last date is left out (the earlier of `created` and `started` counts, for an Action written down after its work began), and an Action closed now whose `completed` date is on or after the conversation's first date counts as in progress. A diary written or rebuilt for a past date no longer links a conversation to an Action created later for the same repository. `actions link` still takes the Actions as they are now.
